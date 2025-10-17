@@ -14,7 +14,7 @@ bool dvfs_enabled;
 
 void DVFSChange(void)
 {
-	CalculateThrottlers();
+	CalculateThrottlers(); //should update aiclkppm.arb_max[] as well as aiclkppm.arb_min (to be used by the function just below)
 	CalculateTargAiclk();
 
 	uint32_t targ_freq = GetAiclkTarg();

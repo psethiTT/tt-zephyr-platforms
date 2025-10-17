@@ -16,6 +16,7 @@
 #include "telemetry.h"
 #include "noc2axi.h"
 #include "tensix_state_msg.h"
+#include "reg.h"
 
 static uint32_t power_limit;
 
@@ -27,6 +28,7 @@ static const bool thermal_throttling = true;
 
 #define kThrottlerAiclkScaleFactor 500.0F
 #define DEFAULT_BOARD_POWER_LIMIT  150
+#define THROTTLER_THERMAL_ERROR_COUNT_REG_ADDR 0x800304FC
 
 LOG_MODULE_REGISTER(throttler);
 
@@ -79,8 +81,7 @@ typedef struct {
 	float output;
 } Throttler;
 
-/* clang-format off */
-static Throttler throttler[kThrottlerCount] = {
+static Throttler throttler[kThrottlerCount] = { //throttler[kthrottlerTDP].params.alpha_filter = 1. throttler[kthrottlerTDP].arb_max = 
 	[kThrottlerTDP] = {
 			.arb_max = aiclk_arb_max_tdp,
 			.params = {
@@ -250,11 +251,12 @@ static void UpdateThrottlerArb(ThrottlerId id)
 {
 	Throttler *t = &throttler[id];
 
-	float arb_val = GetThrottlerArbMax(t->arb_max);
+	float arb_val = GetThrottlerArbMax(t->arb_max); //gets aiclk_ppm.arbiter_max[arb_max]
+	// kAiclkArbMaxThm = 4 for example. GetThrottlerArbMax(4)
 
 	arb_val += t->output * kThrottlerAiclkScaleFactor;
 
-	SetAiclkArbMax(t->arb_max, arb_val);
+	SetAiclkArbMax(t->arb_max, arb_val); //the arbiter max is changed here, set to the arb_value calculated above
 }
 
 static uint16_t board_power_history[1000];
@@ -340,7 +342,7 @@ void CalculateThrottlers(void)
 {
 	TelemetryInternalData telemetry_internal_data;
 
-	ReadTelemetryInternal(1, &telemetry_internal_data);
+	ReadTelemetryInternal(1, &telemetry_internal_data); //update every 1ms
 
 	if (DopplerActive()) {
 		UpdateDoppler(&telemetry_internal_data);
