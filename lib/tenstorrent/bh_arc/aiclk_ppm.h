@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-typedef enum {
+typedef enum { // structure for 8 diff arb frequencies 
 	kAiclkArbMaxFmax,
 	kAiclkArbMaxTDP,
 	kAiclkArbMaxFastTDC,
