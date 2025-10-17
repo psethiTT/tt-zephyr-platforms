@@ -23,6 +23,7 @@
 #include <zephyr/drivers/clock_control.h>
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
+static uint32_t final_arbiter_count[kAiclkArbMaxCount] = {0};
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -47,8 +48,8 @@ typedef struct {
 	uint32_t sweep_en;    /* a value of one means enabled, otherwise disabled. */
 	uint32_t sweep_low;   /* in MHz */
 	uint32_t sweep_high;  /* in MHz */
-	float arbiter_max[kAiclkArbMaxCount];
-	float arbiter_min[kAiclkArbMinCount];
+	float arbiter_max[kAiclkArbMaxCount]; // 8 differnt frequency values based on each arbiter - Arb max for TDC, abriter max for TDP etc. 
+	float arbiter_min[kAiclkArbMinCount]; // 2 different freq values 
 } AiclkPPM;
 
 static AiclkPPM aiclk_ppm = {
@@ -74,18 +75,25 @@ void CalculateTargAiclk(void)
 	/* Start by calculating the highest arbiter_min */
 	/* Then limit to the lowest arbiter_max */
 	/* Finally make sure that the target frequency is at least Fmin */
-	uint32_t targ_freq = aiclk_ppm.fmin;
+	uint32_t targ_freq = aiclk_ppm.fmin; //target = 500
 
-	for (AiclkArbMin i = 0; i < kAiclkArbMinCount; i++) {
-		if (aiclk_ppm.arbiter_min[i] > targ_freq) {
-			targ_freq = aiclk_ppm.arbiter_min[i];
+	for (AiclkArbMin i = 0; i < kAiclkArbMinCount; i++) { // arb_min = 1400 on gobusy
+		if (aiclk_ppm.arbiter_min[i] > targ_freq) { //1400>500 (busy case)
+			targ_freq = aiclk_ppm.arbiter_min[i]; // target = 1400 for all arbiters in busy case
 		}
 	}
-	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
+	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) { //comparing arbiter value from each throttler to the targ freq - set the targ as min of those
 		if (aiclk_ppm.arbiter_max[i] < targ_freq) {
 			targ_freq = aiclk_ppm.arbiter_max[i];
 		}
 	}
+
+	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
+		if (aiclk_ppm.arbiter_max[i] == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
+			final_arbiter_count[i]++;
+		} 
+	}
+
 
 	/* Make sure target is not below Fmin */
 	/* (it will not be above Fmax, since we calculated the max limits last) */
@@ -125,7 +133,7 @@ void IncreaseAiclk(void)
 
 float GetThrottlerArbMax(AiclkArbMax arb_max)
 {
-	return aiclk_ppm.arbiter_max[arb_max];
+	return aiclk_ppm.arbiter_max[arb_max]; //aiclk_ppm.arbiter_max[4]
 }
 
 /* TODO: Write a Zephyr unit test for this function */
@@ -175,7 +183,7 @@ static int InitAiclkPPM(void)
 	aiclk_ppm.fmax = CLAMP(tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.asic_fmax,
 			       AICLK_FMAX_MIN, AICLK_FMAX_MAX);
 	aiclk_ppm.fmin = CLAMP(tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.asic_fmin,
-			       AICLK_FMIN_MIN, AICLK_FMIN_MAX);
+			       AICLK_FMIN_MIN, AICLK_FMIN_MAX); //taken from the table and compared the limites defined here
 
 	/* disable forcing of AICLK */
 	aiclk_ppm.forced_freq = 0;
