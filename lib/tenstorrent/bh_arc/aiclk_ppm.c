@@ -25,6 +25,7 @@
 #include <zephyr/tracing/tracing.h>
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
+static uint32_t final_arbiter_count[kAiclkArbMaxCount] = {0};
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -109,6 +110,13 @@ void CalculateTargAiclk(void)
 		info.reason = limit_reason_max_arb;
 		info.arbiter = max_arb;
 	}
+
+	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
+		if (aiclk_ppm.arbiter_max[i] == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
+			final_arbiter_count[i]++;
+		} 
+	}
+
 
 	/* Make sure target is not below Fmin */
 	/* (it will not be above Fmax, since we calculated the max limits last) */

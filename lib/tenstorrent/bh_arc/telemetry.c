@@ -373,7 +373,7 @@ static void update_telemetry(void)
 	SetPostCode(POST_CODE_SRC_CMFW, POST_CODE_TELEMETRY_START);
 	TelemetryInternalData telemetry_internal_data;
 
-	ReadTelemetryInternal(telem_update_interval, &telemetry_internal_data);
+	ReadTelemetryInternal(telem_update_interval, &telemetry_internal_data); //update the data every 1 ms
 
 	/* Get all dynamically updated values */
 	telemetry[TAG_VCORE] =
