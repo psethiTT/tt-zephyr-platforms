@@ -24,6 +24,7 @@
 #include <zephyr/drivers/clock_control.h>
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
+static uint32_t final_arbiter_count[kAiclkArbMaxCount] = {0};
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -92,7 +93,7 @@ void CalculateTargAiclk(void)
 	/* Start by calculating the highest arbiter_min */
 	/* Then limit to the lowest arbiter_max */
 	/* Finally make sure that the target frequency is at least Fmin */
-	uint32_t targ_freq = aiclk_ppm.fmin;
+	uint32_t targ_freq = aiclk_ppm.fmin; //target = 500
 
 	for (AiclkArbMin i = 0; i < kAiclkArbMinCount; i++) {
 		if (aiclk_ppm.arbiter_min[i].enabled) {
@@ -105,6 +106,13 @@ void CalculateTargAiclk(void)
 			targ_freq = MIN(targ_freq, aiclk_ppm.arbiter_max[i].value);
 		}
 	}
+
+	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
+		if (aiclk_ppm.arbiter_max[i] == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
+			final_arbiter_count[i]++;
+		} 
+	}
+
 
 	/* Make sure target is not below Fmin */
 	/* (it will not be above Fmax, since we calculated the max limits last) */
