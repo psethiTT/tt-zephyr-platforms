@@ -8,6 +8,8 @@
 #include "dvfs.h"
 #include "voltage.h"
 #include "vf_curve.h"
+#include "status_reg.h"
+#include "reg.h"
 
 #include <stdlib.h>
 
@@ -24,6 +26,9 @@
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
 static uint32_t final_arbiter_count[kAiclkArbMaxCount] = {0};
+
+#define THROTTLER_COUNT_BASE_REG_ADDR RESET_UNIT_SCRATCH_RAM_REG_ADDR(22)
+#define THROTTLER_COUNT_REG_ADDR(i) (THROTTLER_COUNT_BASE_REG_ADDR + sizeof(uint32_t) * i)
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -91,6 +96,7 @@ void CalculateTargAiclk(void)
 	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
 		if (aiclk_ppm.arbiter_max[i] == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
 			final_arbiter_count[i]++;
+			WriteReg(THROTTLER_COUNT_REG_ADDR(i), final_arbiter_count[i]);
 		} 
 	}
 
