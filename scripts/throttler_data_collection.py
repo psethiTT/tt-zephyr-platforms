@@ -123,11 +123,25 @@ def print_throttler_delta(before, after):
     print("\nThrottler Count Delta")
     print(tabulate(table, headers, tablefmt="grid"))
 
+def _venv_python_cmd(script_path, extra_args=None):
+    """
+    Returns a list that runs `script_path` inside the venv at
+    ~/work/syseng/src/t6ifc/venv
+    """
+    venv_dir = os.path.expanduser("~/work/syseng/src/t6ifc/venv")
+    python   = os.path.join(venv_dir, "bin", "python3")
+    cmd = [python, script_path]
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
 def main():
 
-    parser = argparse.ArgumentParser(description="Run tt-metal test and read throttler counts")
+    parser = argparse.ArgumentParser(description="Run tt-metal test and read telemetry + throttler counts")
+    parser.add_argument("-t", "--test", default="all", choices=["all", "read_throttler_count", "read_telemetry"], help="Test to run: all, read_throttler_count, read_telemetry")
     parser.add_argument("--command", default=None, help="Docker test command")
     parser.add_argument("--timeout", type=float, default=0, help="Timeout for each run in minutes")
+    parser.add_argument("-r", "--runs", type=int, default=1, help="Number of runs to perform")
     args = parser.parse_args()
 
     if args.command is None:
@@ -142,18 +156,50 @@ def main():
             print("Error: Timeout must be positive")
             sys.exit(1)
 
-    before_counts = read_throttler_counts()
-    print_throttler_counts(before_counts)
+    if args.test in ["all", "read_telemetry"]:
+        telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen.py")
+        if not os.path.isfile(telem_script):
+            print(f"Telemetry script not found: {telem_script}")
+            sys.exit(1)
+        
+        telem_cmd = _venv_python_cmd(telem_script,
+                                 ["--delay", "0.5"])
+        print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
+        telem_proc = subprocess.Popen(telem_cmd,
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL)
 
-    print("\nRunning tt-metal workload...")
-    run_metal_test(args.command, args.timeout)
+    if args.test in ["all", "read_throttler_count"]:
+        before_counts = read_throttler_counts()
+        print_throttler_counts(before_counts)
 
-    after_counts = read_throttler_counts()
-    print_throttler_delta(before_counts, after_counts)
+    for run_idx in range(args.runs):
+        print("\nRunning tt-metal workload...")
+        print(f"\n=== Run {run_idx + 1} of {args.runs} ===")
+        run_metal_test(args.command, args.timeout)
 
+    if args.test in ["all", "read_telemetry"]:
+        print("\nStopping telemetry collection...")
+        telem_proc.terminate()
+        try:
+            telem_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            telem_proc.kill()
+            telem_proc.wait()
+        print(f"\nTelemetry CSV files are in the current directory.")
+
+    if args.test in ["all", "read_throttler_count"]:
+        after_counts = read_throttler_counts()
+        print_throttler_delta(before_counts, after_counts)
+
+    tt_smi_reset()
 
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        print("\nInterrupted by user")
+        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}")
+        sys.exit(1)
