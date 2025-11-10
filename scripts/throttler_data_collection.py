@@ -235,10 +235,15 @@ def _venv_python_cmd(script_path, extra_args=None):
 def main():
 
     parser = argparse.ArgumentParser(description="Run tt-metal test and read telemetry + throttler counts")
-    parser.add_argument("-t", "--test", default="all", choices=["all", "read_throttler_count", "read_telemetry"], help="Test to run: all, read_throttler_count, read_telemetry")
+    parser.add_argument("-t", "--test", default="all", choices=["all", "read_throttler_count", "read_telemetry", "get_throttler_count"], help="Test to run: all, read_throttler_count, read_telemetry")
     parser.add_argument("--command", default=None, help="Docker test command")
     parser.add_argument("--timeout", type=float, default=0, help="Timeout in minutes")
     args = parser.parse_args()
+
+    if args.test == "get_throttler_count":
+        counts = read_throttler_counts()
+        print_throttler_counts(counts)
+        sys.exit(0)
 
     if args.command is None:
         args.command = input("Enter the tt-metal test command to run in Docker: ").strip()
