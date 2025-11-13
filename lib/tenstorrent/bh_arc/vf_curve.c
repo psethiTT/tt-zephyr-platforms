@@ -10,6 +10,7 @@
 #include <zephyr/drivers/misc/bh_fwtable.h>
 #include <tenstorrent/msgqueue.h>
 #include <tenstorrent/smc_msg.h>
+#include "functional_efuse.h"
 
 /* Bounds checks for frequency and voltage margin */
 #define FREQ_MARGIN_MAX    300.0F
@@ -23,11 +24,14 @@ static const float vf_constant = 828.83F;
 
 static float freq_margin_mhz = FREQ_MARGIN_MAX;
 static float voltage_margin_mv = VOLTAGE_MARGIN_MAX;
+static float freq_based_margin;
+static float process_RO;
 
 static const struct device *const fwtable_dev = DEVICE_DT_GET(DT_NODELABEL(fwtable));
 
 void InitVFCurve(void)
 {
+	process_RO = ReadFunctionalEfuse(4464,4479);
 	freq_margin_mhz =
 		CLAMP(tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.frequency_margin,
 		      FREQ_MARGIN_MIN, FREQ_MARGIN_MAX);
@@ -44,11 +48,25 @@ void InitVFCurve(void)
  */
 float VFCurve(float freq_mhz)
 {
-	float freq_with_margin_mhz = freq_mhz + freq_margin_mhz;
+	/*float freq_with_margin_mhz = freq_mhz + freq_margin_mhz;
 	float voltage_mv = vf_quadratic_coeff * freq_with_margin_mhz * freq_with_margin_mhz +
-			   vf_linear_coeff * freq_with_margin_mhz + vf_constant;
+			   vf_linear_coeff * freq_with_margin_mhz + vf_constant; */
+	if (freq_mhz > 1150) {
+		freq_based_margin = 45.0F;
+	} else {
+		freq_based_margin = 25.0F;
+	}
+	float norm_process_RO = (process_RO - 2582.380952F)/ 121.320464F;
+	float norm_freq_mhz = (freq_mhz - 1279.761905F) / 189.567027F;
+	float voltage_mv =
+    	738.687863F
+    	+ (-9.399314F) * norm_process_RO
+    	+ (52.359951F) * norm_freq_mhz
+    	+ (-4.295651F) * norm_process_RO * norm_process_RO
+    	+ (0.000000F) * norm_process_RO * norm_freq_mhz
+    	+ (8.560169F) * norm_freq_mhz * norm_freq_mhz;	
 
-	return voltage_mv + voltage_margin_mv;
+	return voltage_mv + voltage_margin_mv + freq_based_margin;
 }
 
 static uint8_t get_voltage_curve_from_freq_handler(const union request *request,
