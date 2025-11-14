@@ -52,9 +52,9 @@ float VFCurve(float freq_mhz)
 	float voltage_mv = vf_quadratic_coeff * freq_with_margin_mhz * freq_with_margin_mhz +
 			   vf_linear_coeff * freq_with_margin_mhz + vf_constant; */
 	if (freq_mhz > 1150) {
-		freq_based_margin = 45.0F;
+		freq_based_margin = 20.0F;
 	} else {
-		freq_based_margin = 25.0F;
+		freq_based_margin = 0.0F;
 	}
 	float norm_process_RO = (process_RO - 2582.380952F)/ 121.320464F;
 	float norm_freq_mhz = (freq_mhz - 1279.761905F) / 189.567027F;
