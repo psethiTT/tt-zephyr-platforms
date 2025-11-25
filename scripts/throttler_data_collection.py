@@ -22,7 +22,7 @@ RESET_UNIT_SCRATCH_RAM_BASE_ADDR = 0x80030400
 THROTTLER_COUNT_BASE_REG_ADDR = RESET_UNIT_SCRATCH_RAM_BASE_ADDR + 4 * 22
 NUM_THROTTLERS = 8
 
-BASE_LOG_DIR = os.path.expanduser("~/tt-zephyr-platforms-work/tt-zephyr-platforms/scripts/llama_logs/")
+BASE_LOG_DIR = os.path.expanduser("~/llama_logs/")
 os.makedirs(BASE_LOG_DIR, exist_ok=True)
 
 def read_throttler_counts(asic_id=0):
@@ -50,7 +50,14 @@ def read_throttler_counts(asic_id=0):
 def tt_smi_reset():
     """Resets throttler counts"""
     try:
-        result = subprocess.run(["tt-smi", "-r"], capture_output=True, text=True)
+        # Use tt-smi from the venv at ~/tt-smi
+        tt_smi_path = os.path.expanduser("~/tt-smi/venv/bin/tt-smi")
+        if not os.path.exists(tt_smi_path):
+            print(f"Error: tt-smi not found at {tt_smi_path}")
+            print("Please ensure ~/tt-smi/venv is set up correctly.")
+            sys.exit(1)
+        
+        result = subprocess.run([tt_smi_path, "-r"], capture_output=True, text=True)
         if result.returncode != 0:
             print(f"Error running tt-smi -r: \n{result.stderr}")
             raise RuntimeError("tt-smi reset failed")
@@ -61,13 +68,74 @@ def tt_smi_reset():
 
 def sanitize_folder_name(pytest_cmd: str) -> str:
     """
-    Turn a pytest command into a safe directory name.
-    Replaces spaces, slashes, colons, etc. with underscores.
+    Turn any pytest / simple_text_demo command into a short, clean, human-readable folder name.
+    Handles CLI flags, python kwargs, -k tags, long-context files, etc.
     """
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", pytest_cmd.strip())
-    safe = re.sub(r"_+", "_", safe)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{safe}_{timestamp}"
+
+    m = re.search(r"-k\s+([A-Za-z0-9_-]+)", pytest_cmd)
+    if m:
+        tag = m.group(1)
+    else:
+        parts = []
+
+        # batch size
+        b = re.search(r"--batch[-_]size\s+(\d+)|batch[-_]size\s+(\d+)", pytest_cmd, re.I)
+        if b:
+            parts.append(f"b{b.group(1) or b.group(2)}")
+
+        # max_generated_tokens
+        g = re.search(r"--max[-_]generated[-_]tokens\s+(\d+)", pytest_cmd, re.I)
+        if g:
+            parts.append(f"gen{g.group(1)}")
+
+        # max_seq_len (CLI flag or max_seq_len(...) in python call)
+        s = re.search(r"--max[-_]seq[-_]len\s+(\d+)|max_seq_len\s*\(\s*(\d+)", pytest_cmd, re.I)
+        if s:
+            val = int(s.group(1) or s.group(2))
+            if val >= 120000:
+                parts.append("128k")
+            elif val >= 60000:
+                parts.append("64k")
+            elif val >= 30000:
+                parts.append("32k")
+            else:
+                parts.append(f"{val//1024}k")
+
+        # long-context prompt files
+        if "long_context_128k" in pytest_cmd:
+            parts.append("128k")
+        elif "long_context_64k" in pytest_cmd:
+            parts.append("64k")
+        elif "long_context_32k" in pytest_cmd:
+            parts.append("32k")
+
+        # paged attention + block size
+        if re.search(r"--paged[-_]attention|paged_attention\s*=\s*True", pytest_cmd, re.I):
+            blk = re.search(r"--page[-_]block[-_]size\s+(\d+)|page[-_]block[-_]size\s+(\d+)", pytest_cmd, re.I)
+            size = blk.group(1) or blk.group(2) if blk else "32"
+            parts.append(f"page{size}")
+
+        # instruct vs base model
+        if re.search(r"instruct\s*=\s*(True|1)", pytest_cmd, re.I):
+            parts.append("instr")
+
+        # repeat_batches > 1
+        r = re.search(r"--repeat[-_]batches\s+(\d+)|repeat_batches\s*\(\s*(\d+)", pytest_cmd, re.I)
+        if r and (val := r.group(1) or r.group(2)) and int(val) > 1:
+            parts.append(f"rep{val}")
+
+        # greedy vs sampling
+        if re.search(r"temperature\s*[:=]\s*0\.?[\s,\}]", pytest_cmd, re.I):
+            parts.append("greedy")
+
+        tag = "_".join(parts) if parts else "run"
+
+    safe_tag = re.sub(r"[^\w\-_]", "_", tag)[:80]
+    safe_tag = re.sub(r"_+", "_", safe_tag).strip("_")
+
+    return f"{safe_tag}_{timestamp}"
 
 def throttler_delta_header(delta_counts: dict) -> str:
     """
