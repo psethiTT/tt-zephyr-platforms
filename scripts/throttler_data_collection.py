@@ -147,7 +147,7 @@ def throttler_delta_header(delta_counts: dict) -> str:
 def run_metal_test(command, timeout_min, arg):
     """Runs tt-metal workload in Docker"""
     user = os.getenv("USER")
-    llama_dir = f"/home/{user}/LLAMA_31_8B_INSTRUCT_DIR/"
+    llama_dir = f"/proj_syseng/LLAMA_31_8B_INSTRUCT_DIR/"
     if not os.path.exists(llama_dir):
         print(f"Error: {llama_dir} missing")
         sys.exit(1)
@@ -172,7 +172,7 @@ def run_metal_test(command, timeout_min, arg):
         "-v", f"{llama_dir}:{llama_dir}",
         "-e", f"LLAMA_DIR={llama_dir}",
         "--entrypoint", "",
-        "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh:v0.62.0-dev20251010-12-g23761277d0",
+        "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-p300:v0.62.0-dev20251010-12-g23761277d0",
         "/bin/bash", "-c", (
             "set -e && "
             "source /opt/venv/bin/activate && "
