@@ -36,24 +36,26 @@ NUM_THROTTLERS = 8
 BASE_LOG_DIR = os.path.expanduser("~/llama_logs/")
 os.makedirs(BASE_LOG_DIR, exist_ok=True)
 
-def read_throttler_counts(product_type):
-    """Reads scratch registers from the ARC"""
-    max_chips = 0
+def num_chips_for_product(product_type):
     if product_type == "p150":
-        max_chips = 1
+        return 1
     elif product_type == "p300":
-        max_chips = 2
+        return 2
     elif product_type == "galaxy":
-        max_chips = 32
+        return 32
     else:
         print(f"Error: Unknown product type '{product_type}'")
-        return None
+        sys.exit(1)
+
+def read_throttler_counts(product_type):
+    """Reads scratch registers from the ARC"""
+    max_chips = num_chips_for_product(product_type)
 
     try:
         chips = pyluwen.detect_chips()
         if len(chips) != max_chips:
             print(f"Error: Expected {max_chips} chips for '{product_type}' but detected {len(chips)}.")
-            return None
+            sys.exit(1)
 
         all_throttler_data = {}
 
@@ -174,16 +176,19 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
     run_dir = os.path.join(BASE_LOG_DIR, sanitize_folder_name(model))
     os.makedirs(run_dir, exist_ok=True)
     docker_log = os.path.join(run_dir, "docker_output.log")
-    telem_csv = os.path.join(run_dir, "telemetry.csv")
+    telem_base_path = os.path.join(run_dir, "telemetry")
 
     print(f"\nConsole log: {run_dir}")
     print(f"  Docker output: {docker_log}")
     if arg in ["all", "read_telemetry"]:
-        print(f"  Telemetry CSV: {telem_csv}")
+        print(f"  Telemetry CSV: {telem_base_path}_[0-N].csv")
 
     before_counts = None
     if arg in ["all", "read_throttler_count"]:
         before_counts = read_throttler_counts(product_type)
+        num_chips = len(before_counts.keys())
+    else:
+        num_chips = num_chips_for_product(product_type)
 
     docker_cmd = build_docker_command(model, command, llama_dir)
     print(f"\nExecuting: {' '.join(docker_cmd)}")
@@ -195,20 +200,23 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
 
         time.sleep(20)
 
-        telem_proc = None
+        telem_procs = []
         if arg in ["read_telemetry", "all"]:
             telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen.py")
             if not os.path.isfile(telem_script):
                 print(f"Telemetry script not found: {telem_script}")
                 sys.exit(1)
-        
-            telem_cmd = _venv_python_cmd(telem_script,
-                                 ["--delay", "0.001", "--csv", f"{telem_csv}"])
-            print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
-            telem_proc = subprocess.Popen(telem_cmd,
-                                  stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL)
-        
+
+            for asic_id in range(1):
+                telem_csv = f"{telem_base_path}_{asic_id}.csv"
+                telem_cmd = _venv_python_cmd(telem_script,
+                                    ["--delay", "0.01", "--csv", f"{telem_csv}", "--chip-id", f"{asic_id}"])
+                print(f"Starting telemetry logger for chip {asic_id} (venv): {' '.join(telem_cmd)}")
+                proc = subprocess.Popen(telem_cmd,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+                telem_procs.append(proc)
+
         start_time = time.time()
         timeout_sec = (timeout_min * 60) - 20
 
@@ -257,19 +265,27 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
             delta_lines.append(header_line)
         final_header = "\n".join(delta_lines) + "\n"
 
-        if os.path.exists(telem_csv) or os.path.exists(docker_log):
-            orig = open(telem_csv if os.path.exists(telem_csv) else docker_log, "r").read()
-            open(telem_csv if os.path.exists(telem_csv) else docker_log, "w").write(final_header + orig)
-            print(f"Throttler delta header added: {final_header.strip()}")
+        if os.path.exists(docker_log):
+            log_path = docker_log
+        else: 
+            log_path = f"{telem_base_path}_0.csv"
+        
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                orig = f.read()
+            with open(log_path, "w") as f:
+                f.write(final_header + orig)
+            print(f"Throttler delta header added to {os.path.basename(log_path)}:\n{final_header.strip()}")
         else:
-            print("Telemetry CSV missing – delta not written")
+            print(f"({log_path}) missing – delta not written")
     
-    if arg in ["all", "read_telemetry"] and telem_proc is not None:
-        telem_proc.terminate()
-        try:
-            telem_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            telem_proc.kill()
+    if arg in ["all", "read_telemetry"] and telem_procs:
+        for telem_proc in telem_procs:
+            telem_proc.terminate()
+            try:
+                telem_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                 telem_proc.kill()
     
     print(f"\nFULL OUTPUT SAVED TO: {run_dir}")
     return run_dir
