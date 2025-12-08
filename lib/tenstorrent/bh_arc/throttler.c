@@ -13,9 +13,11 @@
 #include <zephyr/drivers/misc/bh_fwtable.h>
 #include "telemetry_internal.h"
 #include "telemetry.h"
+#include "reg.h"
 
 #define kThrottlerAiclkScaleFactor 500.0F
 #define DEFAULT_BOARD_POWER_LIMIT  150
+#define THROTTLER_THERMAL_ERROR_COUNT_REG_ADDR 0x800304FC
 
 LOG_MODULE_REGISTER(throttler);
 
@@ -81,7 +83,7 @@ typedef struct {
 	float output;
 } Throttler;
 
-static Throttler throttler[kThrottlerCount] = {
+static Throttler throttler[kThrottlerCount] = { //throttler[kthrottlerTDP].params.alpha_filter = 1. throttler[kthrottlerTDP].arb_max = 
 	[kThrottlerTDP] = {
 
 			.arb_max = kAiclkArbMaxTDP,
@@ -180,18 +182,19 @@ static void UpdateThrottlerArb(ThrottlerId id)
 {
 	Throttler *t = &throttler[id];
 
-	float arb_val = GetThrottlerArbMax(t->arb_max);
+	float arb_val = GetThrottlerArbMax(t->arb_max); //gets aiclk_ppm.arbiter_max[arb_max]
+	// kAiclkArbMaxThm = 4 for example. GetThrottlerArbMax(4)
 
 	arb_val += t->output * kThrottlerAiclkScaleFactor;
 
-	SetAiclkArbMax(t->arb_max, arb_val);
+	SetAiclkArbMax(t->arb_max, arb_val); //the arbiter max is changed here, set to the arb_value calculated above
 }
 
 void CalculateThrottlers(void)
 {
 	TelemetryInternalData telemetry_internal_data;
 
-	ReadTelemetryInternal(1, &telemetry_internal_data);
+	ReadTelemetryInternal(1, &telemetry_internal_data); //update every 1ms
 
 	UpdateThrottler(kThrottlerTDP, telemetry_internal_data.vcore_power);
 	UpdateThrottler(kThrottlerFastTDC, telemetry_internal_data.vcore_current);
