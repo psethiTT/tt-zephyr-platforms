@@ -3,6 +3,7 @@ import sys
 import os
 import subprocess
 import time
+import signal
 import argparse
 import re
 import itertools
@@ -174,7 +175,7 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
     run_dir = os.path.join(BASE_LOG_DIR, sanitize_folder_name(model))
     os.makedirs(run_dir, exist_ok=True)
     docker_log = os.path.join(run_dir, "docker_output.log")
-    telem_csv = os.path.join(run_dir, "telemetry.csv")
+    telem_csv = os.path.join(run_dir, "telemetry")
 
     print(f"\nConsole log: {run_dir}")
     print(f"  Docker output: {docker_log}")
@@ -197,17 +198,32 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
 
         telem_proc = None
         if arg in ["read_telemetry", "all"]:
-            telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen.py")
+            telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen_p300.py")
             if not os.path.isfile(telem_script):
                 print(f"Telemetry script not found: {telem_script}")
                 sys.exit(1)
         
             telem_cmd = _venv_python_cmd(telem_script,
-                                 ["--delay", "0.001", "--csv", f"{telem_csv}"])
+                                 ["--delay", "0.001", "--csv", telem_csv])
             print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
+            
+            # Create a log file for telemetry script output
+            telem_log = os.path.join(run_dir, "telemetry_script.log")
+            telem_log_file = open(telem_log, "w", buffering=1)
+            
             telem_proc = subprocess.Popen(telem_cmd,
-                                  stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL)
+                                  stdout=telem_log_file,
+                                  stderr=subprocess.STDOUT)
+            print(f"  Telemetry script log: {telem_log}")
+            
+            # Give the telemetry script time to start and detect chips
+            time.sleep(2)
+            
+            # Check if the process is still running
+            if telem_proc.poll() is not None:
+                telem_log_file.close()
+                print(f"WARNING: Telemetry script exited early! Check {telem_log} for errors")
+                telem_proc = None
         
         start_time = time.time()
         timeout_sec = (timeout_min * 60) - 20
@@ -257,18 +273,22 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
             delta_lines.append(header_line)
         final_header = "\n".join(delta_lines) + "\n"
 
-        if os.path.exists(telem_csv) or os.path.exists(docker_log):
-            orig = open(telem_csv if os.path.exists(telem_csv) else docker_log, "r").read()
-            open(telem_csv if os.path.exists(telem_csv) else docker_log, "w").write(final_header + orig)
+        if os.path.exists(docker_log):
+            orig = open(docker_log, "r").read()
+            open(docker_log, "w").write(final_header + orig)
             print(f"Throttler delta header added: {final_header.strip()}")
         else:
             print("Telemetry CSV missing – delta not written")
     
     if arg in ["all", "read_telemetry"] and telem_proc is not None:
-        telem_proc.terminate()
+        print("Stopping telemetry collection...")
+        # Send SIGINT for graceful shutdown (telemetry script handles this)
+        telem_proc.send_signal(signal.SIGINT)
         try:
-            telem_proc.wait(timeout=5)
+            telem_proc.wait(timeout=10)
+            print("Telemetry script stopped gracefully")
         except subprocess.TimeoutExpired:
+            print("Telemetry script didn't respond to SIGINT, forcing termination")
             telem_proc.kill()
     
     print(f"\nFULL OUTPUT SAVED TO: {run_dir}")
