@@ -156,6 +156,26 @@ def build_docker_command(model: str, command: str, llama_dir: Optional[str] = No
             "-c", cmd_sequence
         ]
         return docker_cmd
+    elif model == "bursty":
+        image_name = "tt-metallium-dev:bursty"
+
+        cmd_sequence = (
+            "set -e && "
+            "source /opt/venv/bin/activate && "
+            "cd /tt-metal && "
+            "export PYTHONUNBUFFERED=1 && "
+            "pytest -vv --color=yes " + command
+        )
+
+        docker_cmd = [
+            "sudo", "-E", "docker", "run", "--rm",
+            "--device", "/dev/tenstorrent:/dev/tenstorrent",
+            "-v", "/dev/hugepages-1G:/dev/hugepages-1G",
+            "--entrypoint", "/bin/bash",
+            image_name,
+            "-c", cmd_sequence
+        ]
+        return docker_cmd
 
     else:
         print(f"Error: Unknown model type '{model}'. Must be 'llama' or 'wan'.")
