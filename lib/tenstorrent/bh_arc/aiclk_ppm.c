@@ -117,7 +117,7 @@ void CalculateTargAiclk(void)
 	}
 
 	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
-		if (aiclk_ppm.arbiter_max[i] == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
+		if (aiclk_ppm.arbiter_max[i].value == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
 			final_arbiter_count[i]++;
 			WriteReg(THROTTLER_COUNT_REG_ADDR(i), final_arbiter_count[i]);
 		} 
