@@ -1,5 +1,10 @@
 VERSION_MAJOR = 0
+<<<<<<< HEAD
 VERSION_MINOR = 24
 PATCHLEVEL = 0
+=======
+VERSION_MINOR = 20
+PATCHLEVEL = 1
+>>>>>>> 8a81569f (app: dmc: version: update to 0.20.0)
 VERSION_TWEAK = 0
 EXTRAVERSION =
