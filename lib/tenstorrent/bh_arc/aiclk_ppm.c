@@ -108,10 +108,14 @@ void CalculateTargAiclk(void)
 			targ_freq = MIN(targ_freq, aiclk_ppm.arbiter_max[i].value);
 		}
 	}
-
+	//printk("targ_freq: %u\n", targ_freq);
+	bool throttling = targ_freq != aiclk_ppm.fmax;
+	bool aiclk_busy = aiclk_ppm.arbiter_min[kAiclkArbMinBusy].value == aiclk_ppm.fmax;
 	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
-		if (aiclk_ppm.arbiter_max[i].value == targ_freq && targ_freq != aiclk_ppm.fmax) {  // second half od condition for when no throttling?
+		bool arbiter_enabled = aiclk_ppm.arbiter_max[i].enabled;
+		if (arbiter_enabled && aiclk_ppm.arbiter_max[i].value == targ_freq && throttling && aiclk_busy) {
 			final_arbiter_count[i]++;
+			//printk("throttled arbiter: %u\n", i);
 			WriteReg(THROTTLER_COUNT_REG_ADDR(i), final_arbiter_count[i]);
 		} 
 	}
