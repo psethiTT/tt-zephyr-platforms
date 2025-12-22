@@ -99,7 +99,7 @@ void CalculateTargAiclk(void)
 
 	for (AiclkArbMin i = 0; i < kAiclkArbMinCount; i++) {
 		if (aiclk_ppm.arbiter_min[i].enabled) {
-			targ_freq = MAX(targ_freq, aiclk_ppm.arbiter_min[i].value);
+			targ_freq = MAX(targ_freq, aiclk_ppm.arbiter_min[i].value); //1350 MHz cz AICLK arb min busy set at 1350 on go busy! 
 		}
 	}
 
@@ -267,7 +267,7 @@ uint32_t GetAiclkFmax(void)
 void aiclk_set_busy(bool is_busy)
 {
 	if (is_busy) {
-		SetAiclkArbMin(kAiclkArbMinBusy, aiclk_ppm.fmax);
+		SetAiclkArbMin(kAiclkArbMinBusy, aiclk_ppm.fmax); 
 	} else {
 		SetAiclkArbMin(kAiclkArbMinBusy, aiclk_ppm.fmin);
 	}
