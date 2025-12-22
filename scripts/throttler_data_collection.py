@@ -19,7 +19,7 @@ except ImportError:
     sys.exit(1)
 
 throttler_name = [
-    "Fmax", "TDP", "FastTDC", "TDC", "Thm", "BoardPower", "Voltage", "GDDRThm"
+    "Fmax", "TDP", "FastTDC", "TDC", "Thm", "BoardPower", "Voltage", "GDDRThm", "DopplerSlow", "DopplerCritical"
 ]
 
 model_name = [
@@ -32,7 +32,7 @@ product_type = [
 
 RESET_UNIT_SCRATCH_RAM_BASE_ADDR = 0x80030400
 THROTTLER_COUNT_BASE_REG_ADDR = RESET_UNIT_SCRATCH_RAM_BASE_ADDR + 4 * 22
-NUM_THROTTLERS = 8
+NUM_THROTTLERS = 10
 
 BASE_LOG_DIR = os.path.expanduser("~/llama_logs/")
 os.makedirs(BASE_LOG_DIR, exist_ok=True)
