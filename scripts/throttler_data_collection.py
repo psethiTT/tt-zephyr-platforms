@@ -34,7 +34,7 @@ RESET_UNIT_SCRATCH_RAM_BASE_ADDR = 0x80030400
 THROTTLER_COUNT_BASE_REG_ADDR = RESET_UNIT_SCRATCH_RAM_BASE_ADDR + 4 * 22
 NUM_THROTTLERS = 10
 
-BASE_LOG_DIR = os.path.expanduser("~/llama_logs/")
+BASE_LOG_DIR = os.path.expanduser("~/performance_analysis_logs/")
 os.makedirs(BASE_LOG_DIR, exist_ok=True)
 
 def read_throttler_counts(product_type):
@@ -111,10 +111,18 @@ def throttler_delta_header(asic_id: int, delta_counts: dict) -> str:
     vals = [delta_counts.get(name, 0) for name in throttler_name]
     return f"{{ASIC_{asic_id}}}:" + "{" + ",".join(map(str, vals)) + "}"
 
-def build_docker_command(model: str, command: str, llama_dir: Optional[str] = None) -> List[str]:
+def build_docker_command(model: str, product_type: str, command: str, llama_dir: Optional[str] = None) -> List[str]:
     """Builds the Docker command based on the model and command"""
     if model == "llama":
-        image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-p300:v0.62.0-dev20251010-12-g23761277d0"
+        if product_type == "p150":
+            image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh:v0.62.0-dev20251010-12-g23761277d0"
+        elif product_type == "p300":
+            image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-p300:v0.62.0-dev20251010-12-g23761277d0"
+        elif product_type == "galaxy":
+            image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-galaxy:v0.62.0-dev20251010-12-g23761277d0"
+        else:
+            print(f"Error: Unknown product type '{product_type}'")
+            sys.exit(1)
 
         cmd_sequence = (
             "set -e && "
@@ -183,9 +191,9 @@ def build_docker_command(model: str, command: str, llama_dir: Optional[str] = No
 
 def run_metal_test(model, command, timeout_min, arg, product_type):
     """Runs tt-metal workload in Docker"""
+    telem_timeout = 45 if model == "wan" else 20
 
     llama_dir = None
-
     if model == "llama":
         llama_dir = f"/proj_syseng/LLAMA_31_8B_INSTRUCT_DIR/"
         if not os.path.exists(llama_dir):
@@ -206,59 +214,66 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
     if arg in ["all", "read_throttler_count"]:
         before_counts = read_throttler_counts(product_type)
 
-    docker_cmd = build_docker_command(model, command, llama_dir)
-    print(f"\nExecuting: {' '.join(docker_cmd)}")
-    
-    with open(docker_log, "w", buffering=1) as f:
-        f.write(f"Command: {command}\n")
-        process = subprocess.Popen(docker_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, 
-        bufsize=1, universal_newlines=True, env=dict(os.environ, PYTHONUNBUFFERED="1"))
+    docker_process = None
+    #ipmi_power_proc = None
+    telem_proc = None
 
-        time.sleep(20)
+    try:
+        #power_script = os.path.expanduser("~/work/syseng/src/t6ifc/poll_ipmi_power.py")
+        #ipmi_power_proc = subprocess.Popen(power_script, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
+        #print("Started IPMI power polling...")
 
-        telem_proc = None
-        if arg in ["read_telemetry", "all"]:
-            telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen_p300.py")
-            if not os.path.isfile(telem_script):
-                print(f"Telemetry script not found: {telem_script}")
-                sys.exit(1)
-        
-            telem_cmd = _venv_python_cmd(telem_script,
-                                 ["--delay", "0.001", "--csv", telem_csv])
-            print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
-            
-            # Create a log file for telemetry script output
-            telem_log = os.path.join(run_dir, "telemetry_script.log")
-            telem_log_file = open(telem_log, "w", buffering=1)
-            
-            telem_proc = subprocess.Popen(telem_cmd,
-                                  stdout=telem_log_file,
-                                  stderr=subprocess.STDOUT)
-            print(f"  Telemetry script log: {telem_log}")
-            
-            # Give the telemetry script time to start and detect chips
-            time.sleep(2)
-            
-            # Check if the process is still running
-            if telem_proc.poll() is not None:
-                telem_log_file.close()
-                print(f"WARNING: Telemetry script exited early! Check {telem_log} for errors")
-                telem_proc = None
-        
-        start_time = time.time()
-        timeout_sec = (timeout_min * 60) - 20
+        docker_cmd = build_docker_command(model, product_type, command, llama_dir)
+        print(f"\nExecuting: {' '.join(docker_cmd)}")
 
-        try:
+        with open(docker_log, "w", buffering=1) as f:
+            f.write(f"Command: {command}\n")
+            docker_process = subprocess.Popen(docker_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, 
+            bufsize=1, universal_newlines=True, env=dict(os.environ, PYTHONUNBUFFERED="1"))
+
+            time.sleep(telem_timeout)
+
+            telem_proc = None
+            if arg in ["read_telemetry", "all"]:
+                telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen_2.0.py")
+                if not os.path.isfile(telem_script):
+                    print(f"Telemetry script not found: {telem_script}")
+                    sys.exit(1)
+            
+                telem_cmd = _venv_python_cmd(telem_script,
+                                    ["--product", product_type, "--delay", "0.001", "--csv", telem_csv])
+                print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
+                
+                # Create a log file for telemetry script output
+                telem_log = os.path.join(run_dir, "telemetry_script.log")
+                telem_log_file = open(telem_log, "w", buffering=1)
+                
+                telem_proc = subprocess.Popen(telem_cmd,
+                                    stdout=telem_log_file,
+                                    stderr=subprocess.STDOUT)
+                print(f"  Telemetry script log: {telem_log}")
+                # Give the telemetry script time to start and detect chips
+                time.sleep(2)
+
+                # Check if the process is still running
+                if telem_proc.poll() is not None:
+                    telem_log_file.close()
+                    print(f"WARNING: Telemetry script exited early! Check {telem_log} for errors")
+                    telem_proc = None
+            
+            start_time = time.time()
+            timeout_sec = (timeout_min * 60) - telem_timeout
+
             while True:
-                if process.poll() is not None:
+                if docker_process.poll() is not None:
                     break
 
                 if time.time() - start_time > timeout_sec:
                     print(f"\nTimeout reached - terminating container.")
-                    process.terminate()
+                    docker_process.terminate()
                     break
                 
-                line = process.stdout.readline()
+                line = docker_process.stdout.readline()
                 if line:
                     line = line.rstrip()
                     print(line)
@@ -266,17 +281,35 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
                 else:
                     time.sleep(0.01)
 
-            remaining = process.stdout.read()
-            if remaining:
-                print(remaining, end="")
-                f.write(remaining)
+                remaining = docker_process.stdout.read()
+                if remaining:
+                    print(remaining, end="")
+                    f.write(remaining)
 
-        except Exception as e:
-            print(f"Error while reading Docker output: {e}")
+    finally:
+        if arg in ["all", "read_telemetry"] and telem_proc is not None:
+            print("Stopping telemetry collection...")
+            # Send SIGINT for graceful shutdown (telemetry script handles this)
+            telem_proc.send_signal(signal.SIGINT)
+            try:
+                telem_proc.wait(timeout=10)
+                print("Telemetry script stopped gracefully")
+            except subprocess.TimeoutExpired:
+                print("Telemetry script didn't respond to SIGINT, forcing termination")
+                telem_proc.kill()
 
-        finally:
-            if process.poll() is None:
-                process.kill()
+        # if ipmi_power_proc is not None:
+        #     print("Stopping IPMI power polling...")
+        #     ipmi_power_proc.terminate()  # SIGTERM
+        #     try:
+        #         ipmi_power_proc.wait(timeout=5)
+        #         print("IPMI power polling stopped")
+        #     except subprocess.TimeoutExpired:
+        #         print("IPMI power polling did not exit, killing it")
+        #         ipmi_power_proc.kill()
+
+        if docker_process.poll() is None:
+            docker_process.kill()
 
     if arg in ["all", "read_throttler_count"] and before_counts is not None:
         after_counts = read_throttler_counts(product_type)
@@ -299,18 +332,7 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
             print(f"Throttler delta header added: {final_header.strip()}")
         else:
             print("Telemetry CSV missing – delta not written")
-    
-    if arg in ["all", "read_telemetry"] and telem_proc is not None:
-        print("Stopping telemetry collection...")
-        # Send SIGINT for graceful shutdown (telemetry script handles this)
-        telem_proc.send_signal(signal.SIGINT)
-        try:
-            telem_proc.wait(timeout=10)
-            print("Telemetry script stopped gracefully")
-        except subprocess.TimeoutExpired:
-            print("Telemetry script didn't respond to SIGINT, forcing termination")
-            telem_proc.kill()
-    
+
     print(f"\nFULL OUTPUT SAVED TO: {run_dir}")
     return run_dir
 
@@ -362,7 +384,7 @@ def _venv_python_cmd(script_path, extra_args=None):
     Returns a list that runs `script_path` inside the venv at
     ~/work/syseng/src/t6ifc/venv
     """
-    venv_dir = os.path.expanduser("~/work/syseng/src/t6ifc/venv")
+    venv_dir = os.path.expanduser("~/work/syseng/src/t6ifc/.venv")
     python   = os.path.join(venv_dir, "bin", "python3")
     cmd = [python, script_path]
     if extra_args:
