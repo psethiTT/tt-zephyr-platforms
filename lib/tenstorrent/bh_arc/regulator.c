@@ -72,6 +72,23 @@ typedef struct {
 	uint8_t turn_off_behaviour : 1;
 	uint8_t on_off_state : 1;
 } OperationBits;
+
+typedef enum {
+    CSM_RAIL_VCORE  = 0,
+    CSM_RAIL_VCOREM = 1,
+} csm_rail_t;
+
+static inline uint8_t csm_rail_to_i2c_addr(csm_rail_t rail)
+{
+    switch (rail) {
+    case CSM_RAIL_VCORE:
+        return P0V8_VCORE_ADDR;
+    case CSM_RAIL_VCOREM:
+        return P0V8_VCOREM_ADDR;
+    default:
+        return P0V8_VCORE_ADDR; // default
+    }
+}
 /* clang-format on */
 LOG_MODULE_REGISTER(regulator);
 
@@ -102,14 +119,15 @@ float GetVcoreCurrent(void)
 	return ConvertLinear11ToFloat(iout);
 }
 
-float GetVcoreCurrentDump(void)
+float GetVcoreCurrentDump(csm_rail_t rail)
 { //add a loop here
-	//WriteReg(0x80030418, 0x3);
-	I2CInit(I2CMst, P0V8_VCORE_ADDR, I2CFastMode, PMBUS_MST_ID);
+	uint8_t rail_addr = csm_rail_to_i2c_addr(rail);
+
+	I2CInit(I2CMst, rail_addr, I2CFastMode, PMBUS_MST_ID);
 	uint16_t iout;
 	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_DUMP_START_ADDR;
 	uint32_t start_cycles = k_cycle_get_32();
-	for (int i = 0; i < 800; i++) {
+	for (int i = 0; i < 1200; i++) {
 		I2CReadBytes(PMBUS_MST_ID, READ_IOUT, PMBUS_CMD_BYTE_SIZE, (uint8_t *)&iout,
 		     READ_IOUT_DATA_BYTE_SIZE, PMBUS_FLIP_BYTES);
 
@@ -409,7 +427,8 @@ static uint8_t switch_vout_control_handler(const union request *request, struct 
 static uint8_t get_vcore_current_dump_handler(const union request *request, struct response *response)
 {
 	//WriteReg(0x80030418, 0x2);
-	float current = GetVcoreCurrentDump();
+	csm_rail_t rail = (csm_rail_t)request->data[1];
+	float current = GetVcoreCurrentDump(rail);
 	response->data[1] = *(uint32_t*)&current;
 	return 0;
 
