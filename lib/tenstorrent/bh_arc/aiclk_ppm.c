@@ -25,11 +25,18 @@
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
 
+static uint32_t GetAiclkDump(void);
+
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
 #define AICLK_FMAX_MIN 800.0F
 #define AICLK_FMIN_MAX 800.0F
 #define AICLK_FMIN_MIN 200.0F
+
+#define CSM_DUMP_START_ADDR 0x10030000
+#define CSM_DUMP_END_ADDR   0x1007FFFF
+#define CSM_DUMP_SIZE       (CSM_DUMP_END_ADDR - CSM_DUMP_START_ADDR + 1)  // 327,680 bytes
+#define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint16_t))             // 163,840 samples
 
 /* aiclk control mode */
 typedef enum {
@@ -318,9 +325,51 @@ static uint8_t SweepAiclkHandler(const union request *request, struct response *
 	return 0;
 }
 
+static uint8_t get_current_dump_handler(const union request *request, struct response *response)
+{
+	(void)request;
+	response->data[1] = GetAiclkDump();
+	return 0;
+}
+
+static uint32_t GetAiclkDump(void)
+{
+	/* Pointer to CSM memory where we'll store AICLK values */
+	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_AICLK_DUMP_START_ADDR;
+
+	uint32_t num_samples = 1200;
+
+	uint32_t start_cycles = k_cycle_get_32();
+
+	for (uint32_t i = 0; i < num_samples; i++) {
+		/* Read current AICLK frequency - stores actual running frequency */
+		uint32_t curr_freq_mhz;
+		clock_control_get_rate(pll_dev_0,
+		                       (clock_control_subsys_t)CLOCK_CONTROL_TT_BH_CLOCK_AICLK,
+		                       &curr_freq_mhz);
+
+		/* Store frequency as uint16_t (MHz values fit in 16 bits) */
+		*(csm_addr + i) = (uint16_t)(curr_freq_mhz & 0xFFFF);
+
+	}
+
+	uint32_t end_cycles = k_cycle_get_32();
+	uint32_t cycle_diff = end_cycles - start_cycles;
+	uint64_t ns = k_cyc_to_ns_floor64(cycle_diff);
+
+	/* Store timing information in NOC registers for Python to read */
+	WriteReg(0x80030414, cycle_diff);
+	WriteReg(0x80030418, (uint32_t)(ns & 0xFFFFFFFF));
+	WriteReg(0x8003041C, (uint32_t)((ns >> 32) & 0xFFFFFFFF));
+
+	/* Return the last sampled frequency */
+	return aiclk_ppm.curr_freq;
+}
+
 REGISTER_MESSAGE(TT_SMC_MSG_AICLK_GO_BUSY, aiclk_busy_handler);
 REGISTER_MESSAGE(TT_SMC_MSG_AICLK_GO_LONG_IDLE, aiclk_busy_handler);
 REGISTER_MESSAGE(TT_SMC_MSG_FORCE_AICLK, ForceAiclkHandler);
 REGISTER_MESSAGE(TT_SMC_MSG_GET_AICLK, get_aiclk_handler);
 REGISTER_MESSAGE(TT_SMC_MSG_AISWEEP_START, SweepAiclkHandler);
 REGISTER_MESSAGE(TT_SMC_MSG_AISWEEP_STOP, SweepAiclkHandler);
+REGISTER_MESSAGE(TT_SMC_MSG_GET_AICLK_DUMP, get_aiclk_dump_handler);

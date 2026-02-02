@@ -25,6 +25,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/misc/bh_fwtable.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h> 
 
 #define LINEAR_FORMAT_CONSTANT (1 << 9)
 #define SCALE_LOOP             0.335f
@@ -124,7 +125,7 @@ float GetVcoreCurrentDump(csm_rail_t rail)
 	uint8_t rail_addr = csm_rail_to_i2c_addr(rail);
 
 	I2CInit(I2CMst, rail_addr, I2CFastMode, PMBUS_MST_ID);
-	uint16_t iout;
+	uint16_t iout = 0;
 	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_DUMP_START_ADDR;
 	uint32_t start_cycles = k_cycle_get_32();
 	for (int i = 0; i < 1200; i++) {

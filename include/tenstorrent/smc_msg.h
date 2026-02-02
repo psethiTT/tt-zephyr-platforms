@@ -134,7 +134,10 @@ enum tt_smc_msg {
 	TT_SMC_MSG_CONFIRM_FLASHED_SPI = 0xC4,
 	/** @brief Toggle red blinky on the board */
 	TT_SMC_MSG_BLINKY = 0xC5,
+	/** @brief Get current dump request*/
 	TT_SMC_MSG_GET_CURRENT_DUMP = 0xC6,
+	/** @brief Get AICLK dump request */
+	TT_SMC_MSG_GET_AICLK_DUMP = 0xC7,
 };
 
 /** @} */
