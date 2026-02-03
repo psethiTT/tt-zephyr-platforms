@@ -8,6 +8,7 @@
 #include "dvfs.h"
 #include "voltage.h"
 #include "vf_curve.h"
+#include "reg.h"
 
 #include <stdlib.h>
 
@@ -16,6 +17,7 @@
 #include <tenstorrent/msgqueue.h>
 #include <tenstorrent/sys_init_defines.h>
 #include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/misc/bh_fwtable.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/device.h>
@@ -25,7 +27,59 @@
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
 
-static uint32_t GetAiclkDump(void);
+static uint32_t GetAiclkDump(uint32_t sample_delay_us, uint32_t num_samples,
+			     uint32_t store_stride, uint32_t *stored_samples,
+			     uint32_t *avg_curr, uint32_t *avg_targ);
+
+typedef struct {
+	uint32_t sample_delay_us;
+	uint32_t num_samples;
+	uint32_t store_stride;
+} AiclkDumpParams;
+
+typedef struct {
+	uint32_t last_freq;
+	uint32_t avg_curr;
+	uint32_t avg_targ;
+	uint32_t stored_samples;
+	uint32_t store_stride;
+	uint32_t num_samples;
+} AiclkDumpResult;
+
+static volatile bool aiclk_dump_in_progress;
+static AiclkDumpParams aiclk_dump_params;
+static AiclkDumpResult aiclk_dump_result;
+static K_SEM_DEFINE(aiclk_dump_sem, 0, 1);
+
+static void aiclk_dump_thread_fn(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	while (true) {
+		k_sem_take(&aiclk_dump_sem, K_FOREVER);
+
+		uint32_t stored_samples = 0;
+		uint32_t avg_curr = 0;
+		uint32_t avg_targ = 0;
+		uint32_t last_freq = GetAiclkDump(aiclk_dump_params.sample_delay_us,
+						  aiclk_dump_params.num_samples,
+						  aiclk_dump_params.store_stride,
+						  &stored_samples, &avg_curr, &avg_targ);
+
+		aiclk_dump_result.last_freq = last_freq;
+		aiclk_dump_result.avg_curr = avg_curr;
+		aiclk_dump_result.avg_targ = avg_targ;
+		aiclk_dump_result.stored_samples = stored_samples;
+		aiclk_dump_result.store_stride = aiclk_dump_params.store_stride;
+		aiclk_dump_result.num_samples = aiclk_dump_params.num_samples;
+		aiclk_dump_in_progress = false;
+	}
+}
+
+K_THREAD_DEFINE(aiclk_dump_thread, 4096, aiclk_dump_thread_fn, NULL, NULL, NULL,
+		K_PRIO_PREEMPT(5), 0, 0);
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -36,7 +90,7 @@ static uint32_t GetAiclkDump(void);
 #define CSM_DUMP_START_ADDR 0x10030000
 #define CSM_DUMP_END_ADDR   0x1007FFFF
 #define CSM_DUMP_SIZE       (CSM_DUMP_END_ADDR - CSM_DUMP_START_ADDR + 1)  // 327,680 bytes
-#define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint16_t))             // 163,840 samples
+#define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint32_t))             // 81,920 samples
 
 /* aiclk control mode */
 typedef enum {
@@ -325,42 +379,102 @@ static uint8_t SweepAiclkHandler(const union request *request, struct response *
 	return 0;
 }
 
-static uint8_t get_current_dump_handler(const union request *request, struct response *response)
+static uint8_t get_aiclk_dump_handler(const union request *request, struct response *response)
 {
-	(void)request;
-	response->data[1] = GetAiclkDump();
+	uint32_t op = request->data[7];
+	uint32_t sample_delay_us = request->data[1];
+	uint32_t num_samples = request->data[2];
+	uint32_t store_stride = request->data[3];
+
+	if (op == 0) {
+		if (num_samples == 0) {
+			num_samples = 1200;
+		}
+
+		if (!aiclk_dump_in_progress) {
+			aiclk_dump_params.sample_delay_us = sample_delay_us;
+			aiclk_dump_params.num_samples = num_samples;
+			aiclk_dump_params.store_stride = store_stride;
+			aiclk_dump_in_progress = true;
+			k_sem_give(&aiclk_dump_sem);
+		}
+	}
+
+	response->data[1] = aiclk_dump_result.last_freq;
+	response->data[2] = aiclk_dump_result.avg_curr;
+	response->data[3] = aiclk_dump_result.avg_targ;
+	response->data[4] = aiclk_dump_result.stored_samples;
+	response->data[5] = aiclk_dump_result.store_stride;
+	response->data[6] = aiclk_dump_result.num_samples;
+	response->data[7] = aiclk_dump_in_progress ? 1 : 0;
 	return 0;
 }
 
-static uint32_t GetAiclkDump(void)
+static uint32_t GetAiclkDump(uint32_t sample_delay_us, uint32_t num_samples,
+			     uint32_t store_stride, uint32_t *stored_samples,
+			     uint32_t *avg_curr, uint32_t *avg_targ)
 {
-	/* Pointer to CSM memory where we'll store AICLK values */
-	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_AICLK_DUMP_START_ADDR;
+	/* Pointer to CSM memory where we'll store packed AICLK values */
+	volatile uint32_t * const csm_addr = (volatile uint32_t *)CSM_DUMP_START_ADDR;
+	uint64_t sum_curr = 0;
+	uint64_t sum_targ = 0;
+	uint32_t stored_count = 0;
 
-	uint32_t num_samples = 1200;
+	if (store_stride == 0) {
+		store_stride = (num_samples + MAX_SAMPLES - 1) / MAX_SAMPLES;
+	}
+	if (store_stride == 0) {
+		store_stride = 1;
+	}
 
-	uint32_t start_cycles = k_cycle_get_32();
+	uint64_t start_cycles = k_cycle_get_64();
 
 	for (uint32_t i = 0; i < num_samples; i++) {
 		/* Read current AICLK frequency - stores actual running frequency */
 		uint32_t curr_freq_mhz;
+		uint32_t targ_freq_mhz = aiclk_ppm.targ_freq;
 		clock_control_get_rate(pll_dev_0,
 		                       (clock_control_subsys_t)CLOCK_CONTROL_TT_BH_CLOCK_AICLK,
 		                       &curr_freq_mhz);
 
-		/* Store frequency as uint16_t (MHz values fit in 16 bits) */
-		*(csm_addr + i) = (uint16_t)(curr_freq_mhz & 0xFFFF);
+		sum_curr += curr_freq_mhz;
+		sum_targ += targ_freq_mhz;
 
+		if ((i % store_stride) == 0 && stored_count < MAX_SAMPLES) {
+			/* Pack targ (upper 16) and curr (lower 16) MHz values */
+			*(csm_addr + stored_count) = ((targ_freq_mhz & 0xFFFF) << 16) |
+						     (curr_freq_mhz & 0xFFFF);
+			stored_count++;
+		}
+
+		/* Delay between samples if requested (0 = max rate) */
+		if (sample_delay_us > 0) {
+			if (sample_delay_us >= 1000) {
+				k_usleep(sample_delay_us);
+			} else {
+				k_busy_wait(sample_delay_us);
+			}
+		}
 	}
 
-	uint32_t end_cycles = k_cycle_get_32();
-	uint32_t cycle_diff = end_cycles - start_cycles;
+	uint64_t end_cycles = k_cycle_get_64();
+	uint64_t cycle_diff = end_cycles - start_cycles;
 	uint64_t ns = k_cyc_to_ns_floor64(cycle_diff);
 
 	/* Store timing information in NOC registers for Python to read */
-	WriteReg(0x80030414, cycle_diff);
+	WriteReg(0x80030414, (uint32_t)(cycle_diff & 0xFFFFFFFF));
 	WriteReg(0x80030418, (uint32_t)(ns & 0xFFFFFFFF));
 	WriteReg(0x8003041C, (uint32_t)((ns >> 32) & 0xFFFFFFFF));
+
+	if (avg_curr != NULL) {
+		*avg_curr = (num_samples == 0) ? 0 : (uint32_t)(sum_curr / num_samples);
+	}
+	if (avg_targ != NULL) {
+		*avg_targ = (num_samples == 0) ? 0 : (uint32_t)(sum_targ / num_samples);
+	}
+	if (stored_samples != NULL) {
+		*stored_samples = stored_count;
+	}
 
 	/* Return the last sampled frequency */
 	return aiclk_ppm.curr_freq;
