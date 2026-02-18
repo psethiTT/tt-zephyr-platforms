@@ -27,7 +27,7 @@
 #include <zephyr/tracing/tracing.h>
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
-static uint32_t final_arbiter_count[kAiclkArbMaxCount] = {0};
+static uint32_t final_arbiter_count[aiclk_arb_max_count] = {0};
 
 #define THROTTLER_COUNT_BASE_REG_ADDR RESET_UNIT_SCRATCH_RAM_REG_ADDR(22)
 #define THROTTLER_COUNT_REG_ADDR(i) (THROTTLER_COUNT_BASE_REG_ADDR + sizeof(uint32_t) * i)
@@ -115,17 +115,23 @@ void CalculateTargAiclk(void)
 		info.reason = limit_reason_max_arb;
 		info.arbiter = max_arb;
 	}
-	//printk("targ_freq: %u\n", targ_freq);
-	bool throttling = targ_freq != aiclk_ppm.fmax;
-	bool aiclk_busy = aiclk_ppm.arbiter_min[kAiclkArbMinBusy].value == aiclk_ppm.fmax;
-	for (AiclkArbMax i = 0; i < kAiclkArbMaxCount; i++) {
-		bool arbiter_enabled = aiclk_ppm.arbiter_max[i].enabled;
-		if (arbiter_enabled && aiclk_ppm.arbiter_max[i].value == targ_freq && throttling && aiclk_busy) {
-			final_arbiter_count[i]++;
-			//printk("throttled arbiter: %u\n", i);
-			WriteReg(THROTTLER_COUNT_REG_ADDR(i), final_arbiter_count[i]);
-		} 
-	}
+
+    /* Throttling only if we are below Fmax and busy arbiter is at Fmax */
+    bool throttling = (aiclk_ppm.targ_freq != aiclk_ppm.fmax);
+    bool aiclk_busy =
+        (aiclk_ppm.arbiter_min[aiclk_arb_min_busy].value == aiclk_ppm.fmax);
+
+    for (enum aiclk_arb_max i = 0; i < aiclk_arb_max_count; ++i) {
+        bool arbiter_enabled = aiclk_ppm.arbiter_max[i].enabled;
+
+        if (arbiter_enabled &&
+            aiclk_ppm.arbiter_max[i].value == aiclk_ppm.targ_freq &&
+            throttling && aiclk_busy) {
+
+            final_arbiter_count[i]++;
+            WriteReg(THROTTLER_COUNT_REG_ADDR(i), final_arbiter_count[i]);
+        }
+    }
 
 
 	/* Make sure target is not below Fmin */

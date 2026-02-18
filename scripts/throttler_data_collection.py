@@ -27,7 +27,7 @@ model_name = [
 ]
 
 product_type = [
-    "p150", "p300", "galaxy"
+    "p150", "p300", "qb2", "galaxy"
 ]
 
 RESET_UNIT_SCRATCH_RAM_BASE_ADDR = 0x80030400
@@ -44,6 +44,8 @@ def read_throttler_counts(product_type):
         max_chips = 1
     elif product_type == "p300":
         max_chips = 2
+    elif product_type == "qb2":
+        max_chips = 4
     elif product_type == "galaxy":
         max_chips = 32
     else:
@@ -118,19 +120,36 @@ def build_docker_command(model: str, product_type: str, command: str, llama_dir:
             image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh:v0.62.0-dev20251010-12-g23761277d0"
         elif product_type == "p300":
             image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-p300:v0.62.0-dev20251010-12-g23761277d0"
+        elif product_type == "qb2":
+            image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-qb-ge:v0.67.0-dev20260202-7-gfadb66cce7"
         elif product_type == "galaxy":
             image_name = "ghcr.io/tenstorrent/tt-metal/upstream-tests-bh-galaxy:v0.62.0-dev20251010-12-g23761277d0"
         else:
             print(f"Error: Unknown product type '{product_type}'")
             sys.exit(1)
 
-        cmd_sequence = (
-            "set -e && "
-            "source /opt/venv/bin/activate && "
-            "pip3 install -r models/tt_transformers/requirements.txt && "
-            "export PYTHONUNBUFFERED=1 && "
-            "pytest -vv --color=yes " + command
-        )
+        if "performance-long-context-64k" in command:
+            inner_loop = (
+                "timeout --signal=SIGINT 30m bash -lc "
+                "'while true; do pytest -vv --color=yes " + command + "; done'"
+            )
+            cmd_sequence = (
+                "set -e && "
+                "source /opt/venv/bin/activate && "
+                "export PYTHONUNBUFFERED=1 && "
+                f"export HF_MODEL={llama_dir} && "
+                f"export LLAMA_DIR={llama_dir} && "
+                f"export TT_CACHE_PATH={llama_dir} && "
+                "cd /home/user/tt-metal && " +
+                inner_loop
+            )
+        else:
+            cmd_sequence = (
+                "set -e && "
+                "source /opt/venv/bin/activate && "
+                "export PYTHONUNBUFFERED=1 && "
+                "pytest -vv --color=yes " + command
+            )
 
         docker_cmd = [
             "sudo", "-E", "docker", "run", "--rm", "--user", "root",
@@ -138,19 +157,24 @@ def build_docker_command(model: str, product_type: str, command: str, llama_dir:
             "--device", "/dev/tenstorrent:/dev/tenstorrent",
             "-v", f"{llama_dir}:{llama_dir}",
             "-e", f"LLAMA_DIR={llama_dir}",
-            "--entrypoint", "",
+            "-e", f"HF_MODEL={llama_dir}",
+            "-e", f"TT_CACHE_PATH={llama_dir}",
+            "--entrypoint", "/bin/bash",
             image_name,
-            "/bin/bash", "-c", cmd_sequence
+            "-c", cmd_sequence
         ]
+
+        if "performance-long-context-64k" in command:
+            docker_cmd = ["timeout", "--signal=SIGINT", "30m"] + docker_cmd
         return docker_cmd
 
     elif model == "wan":
-        image_name = "tt-metalium-dev:new_build_for_tlb"
+        image_name = "tt-metal:wan"
 
         cmd_sequence = (
             "set -e && "
-            "source /opt/venv/bin/activate && "
             "cd /tt-metal && "
+            "source ./python_env/bin/activate && "
             "export PYTHONUNBUFFERED=1 && "
             "pytest -vv --color=yes " + command
         )
@@ -191,7 +215,7 @@ def build_docker_command(model: str, product_type: str, command: str, llama_dir:
 
 def run_metal_test(model, command, timeout_min, arg, product_type):
     """Runs tt-metal workload in Docker"""
-    telem_timeout = 45 if model == "wan" else 20
+    telem_timeout = 25 if model == "wan" else 20
 
     llama_dir = None
     if model == "llama":
@@ -215,6 +239,7 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
         before_counts = read_throttler_counts(product_type)
 
     docker_process = None
+    cpu_proc = None
     #ipmi_power_proc = None
     telem_proc = None
 
@@ -231,18 +256,48 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
             docker_process = subprocess.Popen(docker_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, 
             bufsize=1, universal_newlines=True, env=dict(os.environ, PYTHONUNBUFFERED="1"))
 
+            cpu_log_script = os.path.expanduser("~/cpu_temp_logging.py")
+            cpu_log_path = os.path.join(run_dir, "cpu_temp_log.csv")
+            if os.path.isfile(cpu_log_script):
+                cpu_log_out = open(os.path.join(run_dir, "cpu_temp_logger_stdout.log"), "w", buffering=1)
+                cpu_proc = subprocess.Popen(
+                    [sys.executable, cpu_log_script],
+                    cwd=run_dir,
+                    stdout=cpu_log_out,
+                    stderr=subprocess.STDOUT,
+                )
+                print(f"Started CPU logger: {cpu_log_script} -> {cpu_log_path}")
+            else:
+                print(f"WARNING: CPU logger script not found at {cpu_log_script}, skipping CPU logging")
+
+
             time.sleep(telem_timeout)
 
             telem_proc = None
             if arg in ["read_telemetry", "all"]:
-                telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen_2.0.py")
+                telem_script = os.path.expanduser("~/work/syseng/src/t6ifc/read_telem_pyluwen_4.0.py")
                 if not os.path.isfile(telem_script):
                     print(f"Telemetry script not found: {telem_script}")
                     sys.exit(1)
-            
-                telem_cmd = _venv_python_cmd(telem_script,
-                                    ["--product", product_type, "--delay", "0.001", "--csv", telem_csv])
-                print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
+
+                if product_type == "p150":
+                    telem_product = "p150"
+                elif product_type == "p300" or product_type == "qb2":
+                    telem_product = "p300"
+
+                if product_type == "qb2":
+                    board_count = 2
+                else:
+                    board_count = 1
+
+                if product_type == "galaxy":
+                    telem_cmd = _venv_python_cmd(telem_script,
+                                        ["--product", product_type, "--delay", "0.001", "--csv", telem_csv])
+                    print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
+                else:
+                    telem_cmd = _venv_python_cmd(telem_script,
+                                        ["--product", telem_product, "--boards", str(board_count), "--delay", "0.001", "--csv", telem_csv])
+                    print(f"Starting telemetry logger (venv): {' '.join(telem_cmd)}")
                 
                 # Create a log file for telemetry script output
                 telem_log = os.path.join(run_dir, "telemetry_script.log")
@@ -265,26 +320,32 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
             timeout_sec = (timeout_min * 60) - telem_timeout
 
             while True:
-                if docker_process.poll() is not None:
-                    break
-
-                if time.time() - start_time > timeout_sec:
-                    print(f"\nTimeout reached - terminating container.")
-                    docker_process.terminate()
-                    break
-                
                 line = docker_process.stdout.readline()
+
                 if line:
                     line = line.rstrip()
                     print(line)
                     f.write(line + "\n")
+                    f.flush()
                 else:
+                    if docker_process.poll() is not None:
+                        break
+
+                    if time.time() - start_time > timeout_sec:
+                        print(f"\nTimeout reached - terminating container.")
+                        docker_process.terminate()
+                        try:
+                            docker_process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            docker_process.kill()
+                        break
+
                     time.sleep(0.01)
 
-                remaining = docker_process.stdout.read()
-                if remaining:
-                    print(remaining, end="")
-                    f.write(remaining)
+            return_code = docker_process.returncode
+            print(f"\nDocker exit code: {return_code}")
+            f.write(f"\nDocker exit code: {return_code}\n")
+            f.flush()
 
     finally:
         if arg in ["all", "read_telemetry"] and telem_proc is not None:
@@ -307,8 +368,14 @@ def run_metal_test(model, command, timeout_min, arg, product_type):
         #     except subprocess.TimeoutExpired:
         #         print("IPMI power polling did not exit, killing it")
         #         ipmi_power_proc.kill()
+        if cpu_proc and cpu_proc.poll() is None:
+            cpu_proc.terminate()
+            try:
+                cpu_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                cpu_proc.kill()
 
-        if docker_process.poll() is None:
+        if docker_process is not None and docker_process.poll() is None:
             docker_process.kill()
 
     if arg in ["all", "read_throttler_count"] and before_counts is not None:
@@ -398,7 +465,7 @@ def main():
     parser.add_argument("--command", default=None, help="Docker test command")
     parser.add_argument("--timeout", type=float, default=0, help="Timeout in minutes")
     parser.add_argument("--model", default=None, choices=model_name, help="Model name (eg. llama, wan)")
-    parser.add_argument("--product_type", default="p150", choices=product_type, help="Product type (eg. p150, p300, galaxy)")
+    parser.add_argument("--product_type", default="p150", choices=product_type, help="Product type (eg. p150, p300, qb2, galaxy)")
     args = parser.parse_args()
 
     if args.test == "get_throttler_count":
