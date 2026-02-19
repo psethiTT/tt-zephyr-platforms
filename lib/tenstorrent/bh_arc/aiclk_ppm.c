@@ -25,7 +25,19 @@
 
 static const struct device *const pll_dev_0 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(pll0));
 
-static uint32_t GetAiclkDump(void);
+static void AiclkDumpTick(void);
+static void AiclkDumpStart(uint32_t num_samples, uint32_t store_stride);
+
+static volatile bool aiclk_dump_enabled;
+static uint32_t aiclk_dump_num_samples;
+static uint32_t aiclk_dump_store_stride;
+static uint32_t aiclk_dump_sample_index;
+static uint32_t aiclk_dump_stored_samples;
+static uint64_t aiclk_dump_sum_curr;
+static uint64_t aiclk_dump_sum_targ;
+static uint32_t aiclk_dump_avg_curr;
+static uint32_t aiclk_dump_avg_targ;
+static uint32_t aiclk_dump_last_freq;
 
 /* Bounds checks for FMAX and FMIN (in MHz) */
 #define AICLK_FMAX_MAX 1400.0F
@@ -36,7 +48,7 @@ static uint32_t GetAiclkDump(void);
 #define CSM_DUMP_START_ADDR 0x10030000
 #define CSM_DUMP_END_ADDR   0x1007FFFF
 #define CSM_DUMP_SIZE       (CSM_DUMP_END_ADDR - CSM_DUMP_START_ADDR + 1)  // 327,680 bytes
-#define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint16_t))             // 163,840 samples
+#define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint32_t))             // 81,920 samples
 
 /* aiclk control mode */
 typedef enum {
@@ -72,6 +84,67 @@ static AiclkPPM aiclk_ppm = {
 static const struct device *const fwtable_dev = DEVICE_DT_GET(DT_NODELABEL(fwtable));
 
 static bool last_msg_busy;
+
+static void AiclkDumpStart(uint32_t num_samples, uint32_t store_stride)
+{
+	if (num_samples == 0) {
+		num_samples = 1200;
+	}
+
+	if (store_stride == 0) {
+		store_stride = (num_samples + MAX_SAMPLES - 1) / MAX_SAMPLES;
+	}
+	if (store_stride == 0) {
+		store_stride = 1;
+	}
+
+	aiclk_dump_enabled = true;
+	aiclk_dump_num_samples = num_samples;
+	aiclk_dump_store_stride = store_stride;
+	aiclk_dump_sample_index = 0;
+	aiclk_dump_stored_samples = 0;
+	aiclk_dump_sum_curr = 0;
+	aiclk_dump_sum_targ = 0;
+	aiclk_dump_avg_curr = 0;
+	aiclk_dump_avg_targ = 0;
+	aiclk_dump_last_freq = 0;xN
+}
+
+static void AiclkDumpTick(void)
+{
+	if (aiclk_dump_sample_index >= aiclk_dump_num_samples) {
+		aiclk_dump_avg_curr = (aiclk_dump_num_samples == 0)
+					      ? 0
+					      : (uint32_t)(aiclk_dump_sum_curr / aiclk_dump_num_samples);
+		aiclk_dump_avg_targ = (aiclk_dump_num_samples == 0)
+					      ? 0
+					      : (uint32_t)(aiclk_dump_sum_targ / aiclk_dump_num_samples);
+		aiclk_dump_enabled = false;
+		return;
+	}
+
+	uint32_t curr_freq_mhz;
+	uint32_t targ_freq_mhz = aiclk_ppm.targ_freq;
+
+	clock_control_get_rate(pll_dev_0,
+			       (clock_control_subsys_t)CLOCK_CONTROL_TT_BH_CLOCK_AICLK,
+			       &curr_freq_mhz);
+
+	aiclk_dump_last_freq = curr_freq_mhz;
+	aiclk_dump_sum_curr += curr_freq_mhz;
+	aiclk_dump_sum_targ += targ_freq_mhz;
+
+	if ((aiclk_dump_sample_index % aiclk_dump_store_stride) == 0 &&
+	    aiclk_dump_stored_samples < MAX_SAMPLES) {
+		volatile uint32_t *const csm_addr =
+			(volatile uint32_t *)CSM_DUMP_START_ADDR;
+		*(csm_addr + aiclk_dump_stored_samples) =
+			((targ_freq_mhz & 0xFFFF) << 16) | (curr_freq_mhz & 0xFFFF);
+		aiclk_dump_stored_samples++;
+	}
+
+	aiclk_dump_sample_index++;
+}
 
 void SetAiclkArbMax(AiclkArbMax arb_max, float freq)
 {
@@ -126,6 +199,10 @@ void CalculateTargAiclk(void)
 	/* Apply forced frequency at the end, regardless of any limits */
 	if (aiclk_ppm.forced_freq != 0) {
 		aiclk_ppm.targ_freq = aiclk_ppm.forced_freq;
+	}
+
+	if (aiclk_dump_enabled) {
+		AiclkDumpTick();
 	}
 }
 
@@ -325,45 +402,22 @@ static uint8_t SweepAiclkHandler(const union request *request, struct response *
 	return 0;
 }
 
-static uint8_t get_current_dump_handler(const union request *request, struct response *response)
+static uint8_t get_aiclk_dump_handler(const union request *request, struct response *response)
 {
-	(void)request;
-	response->data[1] = GetAiclkDump();
-	return 0;
-}
+	uint32_t op = request->data[7];
 
-static uint32_t GetAiclkDump(void)
-{
-	/* Pointer to CSM memory where we'll store AICLK values */
-	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_AICLK_DUMP_START_ADDR;
-
-	uint32_t num_samples = 1200;
-
-	uint32_t start_cycles = k_cycle_get_32();
-
-	for (uint32_t i = 0; i < num_samples; i++) {
-		/* Read current AICLK frequency - stores actual running frequency */
-		uint32_t curr_freq_mhz;
-		clock_control_get_rate(pll_dev_0,
-		                       (clock_control_subsys_t)CLOCK_CONTROL_TT_BH_CLOCK_AICLK,
-		                       &curr_freq_mhz);
-
-		/* Store frequency as uint16_t (MHz values fit in 16 bits) */
-		*(csm_addr + i) = (uint16_t)(curr_freq_mhz & 0xFFFF);
-
+	if (op == 0) {
+		AiclkDumpStart(request->data[2], request->data[3]);
 	}
 
-	uint32_t end_cycles = k_cycle_get_32();
-	uint32_t cycle_diff = end_cycles - start_cycles;
-	uint64_t ns = k_cyc_to_ns_floor64(cycle_diff);
-
-	/* Store timing information in NOC registers for Python to read */
-	WriteReg(0x80030414, cycle_diff);
-	WriteReg(0x80030418, (uint32_t)(ns & 0xFFFFFFFF));
-	WriteReg(0x8003041C, (uint32_t)((ns >> 32) & 0xFFFFFFFF));
-
-	/* Return the last sampled frequency */
-	return aiclk_ppm.curr_freq;
+	response->data[1] = aiclk_dump_last_freq;
+	response->data[2] = aiclk_dump_avg_curr;
+	response->data[3] = aiclk_dump_avg_targ;
+	response->data[4] = aiclk_dump_stored_samples;
+	response->data[5] = aiclk_dump_store_stride;
+	response->data[6] = aiclk_dump_num_samples;
+	response->data[7] = aiclk_dump_enabled ? 1 : 0;
+	return 0;
 }
 
 REGISTER_MESSAGE(TT_SMC_MSG_AICLK_GO_BUSY, aiclk_busy_handler);
