@@ -79,6 +79,24 @@ blobs:
           raw/refs/heads/main/zephyr/blobs/tt_blackhole_serdes_eth_fw.bin"
     description: "Ethernet SerDes firmware"
     doc-url: https://tenstorrent.com
+  - path: tt_blackhole_alt_serdes_eth_fwreg.bin
+    sha256: 5741db6b07d1b2b056f6110cc24d8902dc9a5c4b8363367924c62e31fc0caa08
+    type: img
+    version: '0.9.16'
+    license-path: zephyr/blobs/license.txt
+    url: "https://github.com/tenstorrent/tt-system-firmware/\
+          raw/refs/heads/main/zephyr/blobs/tt_blackhole_alt_serdes_eth_fwreg.bin"
+    description: "Ethernet Alternative SerDes parameters"
+    doc-url: https://tenstorrent.com
+  - path: tt_blackhole_alt_serdes_eth_fw.bin
+    sha256: 937e9e69504fcbcda4612bb902e5370ae678acb3647c372cbb1cf95a5f4f0b20
+    type: img
+    version: '0.9.16'
+    license-path: zephyr/blobs/license.txt
+    url: "https://github.com/tenstorrent/tt-system-firmware/\
+          raw/refs/heads/main/zephyr/blobs/tt_blackhole_alt_serdes_eth_fw.bin"
+    description: "Ethernet Alternative SerDes firmware"
+    doc-url: https://tenstorrent.com
   - path: tt_blackhole_gddr_init.bin
     sha256: b5be3c09148a16f8a393fbaeeafae09d4b4d3684ffaac032066597b4e08661e1
     type: img
