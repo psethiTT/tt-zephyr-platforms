@@ -50,10 +50,12 @@ LOG_MODULE_REGISTER(eth, CONFIG_TT_APP_LOG_LEVEL);
 
 #define ETH_MAC_ADDR_ORG 0x208C47 /* 20:8C:47 */
 
-#define ETH_FW_CFG_TAG "ethfwcfg"
-#define ETH_FW_TAG     "ethfw"
-#define ETH_SD_REG_TAG "ethsdreg"
-#define ETH_SD_FW_TAG  "ethsdfw"
+#define ETH_FW_CFG_TAG     "ethfwcfg"
+#define ETH_FW_TAG         "ethfw"
+#define ETH_SD_REG_TAG     "ethsdreg"
+#define ETH_SD_FW_TAG      "ethsdfw"
+#define ETH_ALT_SD_REG_TAG "altsdreg"
+#define ETH_ALT_SD_FW_TAG  "altsdfw"
 
 static const struct device *const fwtable_dev = DEVICE_DT_GET(DT_NODELABEL(fwtable));
 static const struct device *flash = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(spi_flash));
@@ -372,6 +374,22 @@ int LoadEthFwCfg(uint32_t eth_inst, uint32_t ring, uint8_t *buf, uint32_t eth_en
 	return 0;
 }
 
+bool LoadAltSerdes(uint8_t serdes_inst)
+{
+	PcbType pcb_type;
+	uint32_t asic_location;
+	pcb_type = tt_bh_fwtable_get_pcb_type(fwtable_dev);
+	asic_location = tt_bh_fwtable_get_asic_location(fwtable_dev);
+
+	if (pcb_type == PcbTypeUBB &&
+		(asic_location >= 5 && asic_location <= 8) &&
+		serdes_inst == 5) {
+		return true;
+	}
+
+	return false;
+}
+
 static void SerdesEthInit(void)
 {
 	uint32_t ring = 0;
@@ -379,6 +397,8 @@ static void SerdesEthInit(void)
 	tt_boot_fs_fd tag_fd;
 	size_t image_size;
 	size_t spi_address;
+	size_t alt_image_size;
+	size_t alt_spi_address;
 
 	SetupEthSerdesMux(tile_enable.eth_enabled);
 
@@ -408,11 +428,23 @@ static void SerdesEthInit(void)
 	image_size = tag_fd.flags.f.image_size;
 	spi_address = tag_fd.spi_addr;
 
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_REG_TAG, &tag_fd);
+	if (rc < 0) {
+		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_ALT_SD_REG_TAG, rc);
+	}
+	alt_image_size = tag_fd.flags.f.image_size;
+	alt_spi_address = tag_fd.spi_addr;
+
 	/* Load fw regs */
 	for (uint8_t serdes_inst = 0; serdes_inst < 6; serdes_inst++) {
-		if (load_serdes & (1 << serdes_inst)) {
-			LoadSerdesEthRegs(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
-					  image_size);
+		if (IS_BIT_SET(load_serdes, serdes_inst)) {
+			if (LoadAltSerdes(serdes_inst)) {
+				LoadSerdesEthRegs(serdes_inst, ring, buf, SCRATCHPAD_SIZE, alt_spi_address,
+						alt_image_size);
+			} else {
+				LoadSerdesEthRegs(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
+						image_size);
+			}
 		}
 	}
 
@@ -424,11 +456,24 @@ static void SerdesEthInit(void)
 	image_size = tag_fd.flags.f.image_size;
 	spi_address = tag_fd.spi_addr;
 
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_FW_TAG, &tag_fd);
+	if (rc < 0) {
+		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_ALT_SD_FW_TAG, rc);
+		return;
+	}
+	alt_image_size = tag_fd.flags.f.image_size;
+	alt_spi_address = tag_fd.spi_addr;
+
 	/* Load fw */
 	for (uint8_t serdes_inst = 0; serdes_inst < 6; serdes_inst++) {
-		if (load_serdes & (1 << serdes_inst)) {
-			LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
-					image_size);
+		if (IS_BIT_SET(load_serdes, serdes_inst)) {
+			if (LoadAltSerdes(serdes_inst)) {
+				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE, alt_spi_address,
+						alt_image_size);
+			} else {
+				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
+						image_size);
+			}
 		}
 	}
 }
