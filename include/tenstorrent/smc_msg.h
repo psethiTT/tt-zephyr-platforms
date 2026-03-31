@@ -93,12 +93,15 @@ enum tt_smc_msg {
 
 	/** @brief @ref counter_rqst "Generic Counter Request" */
 	TT_SMC_MSG_COUNTER = 0x35,
+
 	/** @brief @ref clock_counter_rqst "Start Clock Counter request" (word[1] = delay_ms before
 	 *  first sample; 0 = immediate; word[2] bit0 = defer rows until @ref TT_SMC_MSG_AICLK_GO_BUSY)
 	 */
 	TT_SMC_MSG_START_CLOCK_COUNTER = 0x36,
+
 	/** @brief @ref clock_counter_rqst "Stop Clock Counter request" */
 	TT_SMC_MSG_STOP_CLOCK_COUNTER = 0x37,
+
 	/** @brief @ref force_vdd_rqst "Force VDD voltage request" */
 	TT_SMC_MSG_FORCE_VDD = 0x39,
 
@@ -131,6 +134,12 @@ enum tt_smc_msg {
 
 	/** @brief @ref force_fan_speed_rqst "Force Fan Speed Request"*/
 	TT_SMC_MSG_FORCE_FAN_SPEED = 0xAC,
+
+	/** @brief Get DRAM temperature request (not supported) */
+	TT_SMC_MSG_GET_DRAM_TEMPERATURE = 0xAD,
+
+	/** @brief @ref toggle_single_tensix_reset_rqst "Toggle single Tensix reset request" */
+	TT_SMC_MSG_TOGGLE_SINGLE_TENSIX_RESET = 0xAE,
 
 	/** @brief @ref toggle_tensix_reset_rqst "Toggle Tensix reset request" */
 	TT_SMC_MSG_TOGGLE_TENSIX_RESET = 0xAF,
