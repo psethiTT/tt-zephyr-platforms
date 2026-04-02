@@ -68,16 +68,10 @@ struct OperationBits {
 	uint8_t transition_control: 1;
 	uint8_t margin_fault_response: 2;
 
-<<<<<<< HEAD
 	enum VoltageCmdSource voltage_command_source: 2;
 	uint8_t turn_off_behaviour: 1;
 	uint8_t on_off_state: 1;
 };
-=======
-	VoltageCmdSource voltage_command_source : 2;
-	uint8_t turn_off_behaviour : 1;
-	uint8_t on_off_state : 1;
-} OperationBits;
 
 typedef enum {
     CSM_RAIL_VCORE  = 0,
@@ -96,7 +90,6 @@ static inline uint8_t csm_rail_to_i2c_addr(csm_rail_t rail)
     }
 }
 /* clang-format on */
->>>>>>> 35d01f70 (adding vcorem reading)
 LOG_MODULE_REGISTER(regulator);
 
 /* The default value is the regulator default */
