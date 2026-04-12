@@ -53,11 +53,22 @@ static const uint8_t p1x0_vcore_e7_mask[] = {0x07};
 
 BUILD_ASSERT(sizeof(p1x0_vcore_e7_data) == sizeof(p1x0_vcore_e7_mask));
 
+/*
+ * 0xF0: R_IOUT_EXP — bits [9:8] select READ_IOUT scaling (MAX20816 datasheet).
+ * Little-endian byte order: only high byte bits 0–1 (word bits [9:8]) are touched.
+ * Data 0x01 => field 0b01 — confirm against the R_IOUT_EXP table (Rail A: -1,0,1,2).
+ * If READ_IOUT LINEAR11 exponent is wrong after boot, try 0x00/0x02/0x03 per datasheet.
+ */
+static const uint8_t p1x0_vcore_f0_data[] = {0x00, 0x01};
+static const uint8_t p1x0_vcore_f0_mask[] = {0x00, 0x03};
+
+BUILD_ASSERT(sizeof(p1x0_vcore_f0_data) == sizeof(p1x0_vcore_f0_mask));
+
 static const RegulatorData p1x0_vcore_data[] = {
 	REGULATOR_DATA(p1x0_vcore, b0), REGULATOR_DATA(p1x0_vcore, cb),
 	REGULATOR_DATA(p1x0_vcore, d3), REGULATOR_DATA(p1x0_vcore, ca),
 	REGULATOR_DATA(p1x0_vcore, 38), REGULATOR_DATA(p1x0_vcore, 39),
-	REGULATOR_DATA(p1x0_vcore, e7),
+	REGULATOR_DATA(p1x0_vcore, e7), REGULATOR_DATA(p1x0_vcore, f0),
 };
 
 /* VCOREM */
