@@ -94,14 +94,6 @@ enum tt_smc_msg {
 	/** @brief @ref counter_rqst "Generic Counter Request" */
 	TT_SMC_MSG_COUNTER = 0x35,
 
-	/** @brief @ref clock_counter_rqst "Start Clock Counter request" (word[1] = delay_ms before
-	 *  first sample; 0 = immediate; word[2] bit0 = defer rows until @ref TT_SMC_MSG_AICLK_GO_BUSY)
-	 */
-	TT_SMC_MSG_START_CLOCK_COUNTER = 0x36,
-
-	/** @brief @ref clock_counter_rqst "Stop Clock Counter request" */
-	TT_SMC_MSG_STOP_CLOCK_COUNTER = 0x37,
-
 	/** @brief @ref force_vdd_rqst "Force VDD voltage request" */
 	TT_SMC_MSG_FORCE_VDD = 0x39,
 
@@ -176,6 +168,10 @@ enum tt_smc_msg {
 enum char_submsg_ids {
 	/** @brief Set host-requested minimum frequency (AICLK) */
 	TT_SUB_MSG_SET_HOST_REQUESTED_FMIN = 0x1,
+	/** @brief Start AICLK clock-pattern counter (@ref characterisation_clock_counter_start_submsg) */
+	TT_SUB_MSG_START_CLOCK_COUNTER = 0x2,
+	/** @brief Stop AICLK clock-pattern counter (no payload) */
+	TT_SUB_MSG_STOP_CLOCK_COUNTER = 0x3,
 };
 
 /** @} */
