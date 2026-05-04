@@ -127,7 +127,7 @@ float GetVcoreCurrentDump(csm_rail_t rail)
 	uint16_t iout = 0;
 	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_DUMP_START_ADDR;
 	uint32_t start_cycles = k_cycle_get_32();
-	for (int i = 0; i < 1200; i++) {
+	for (int i = 0; i < 5000; i++) {
 		I2CReadBytes(PMBUS_MST_ID, READ_IOUT, PMBUS_CMD_BYTE_SIZE, (uint8_t *)&iout,
 		     READ_IOUT_DATA_BYTE_SIZE, PMBUS_FLIP_BYTES);
 
