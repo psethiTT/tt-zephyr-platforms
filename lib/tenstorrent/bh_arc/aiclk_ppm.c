@@ -92,7 +92,7 @@ K_THREAD_DEFINE(aiclk_dump_thread, 4096, aiclk_dump_thread_fn, NULL, NULL, NULL,
 #define AICLK_FMIN_MAX 800.0F
 #define AICLK_FMIN_MIN 200.0F
 
-#define CSM_DUMP_START_ADDR 0x10030000
+#define CSM_DUMP_START_ADDR 0x10045ed0
 #define CSM_DUMP_END_ADDR   0x1007FFFF
 #define CSM_DUMP_SIZE       (CSM_DUMP_END_ADDR - CSM_DUMP_START_ADDR + 1)  // 327,680 bytes
 #define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint32_t))             // 81,920 samples

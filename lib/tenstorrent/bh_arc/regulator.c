@@ -50,7 +50,7 @@
 #define OPERATION_DATA_BYTE_SIZE       1
 #define PMBUS_CMD_BYTE_SIZE            1
 #define PMBUS_FLIP_BYTES               0
-#define CSM_DUMP_START_ADDR 0x10030000
+#define CSM_DUMP_START_ADDR 0x10045ed0
 #define CSM_DUMP_END_ADDR   0x1007FFFF
 #define CSM_DUMP_SIZE       (CSM_DUMP_END_ADDR - CSM_DUMP_START_ADDR + 1)  // 327,680 bytes
 #define MAX_SAMPLES         (CSM_DUMP_SIZE / sizeof(uint16_t))             // 163,840 samples
@@ -127,7 +127,7 @@ float GetVcoreCurrentDump(csm_rail_t rail)
 	uint16_t iout = 0;
 	volatile uint16_t * const csm_addr = (volatile uint16_t *)CSM_DUMP_START_ADDR;
 	uint32_t start_cycles = k_cycle_get_32();
-	for (int i = 0; i < 5000; i++) {
+	for (int i = 0; i < 25000; i++) {
 		I2CReadBytes(PMBUS_MST_ID, READ_IOUT, PMBUS_CMD_BYTE_SIZE, (uint8_t *)&iout,
 		     READ_IOUT_DATA_BYTE_SIZE, PMBUS_FLIP_BYTES);
 
