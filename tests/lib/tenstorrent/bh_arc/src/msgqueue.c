@@ -21,6 +21,7 @@
 #include "aiclk_ppm.h"
 
 #include "reg_mock.h"
+#include "voltage.h"
 
 /* Custom fake for ReadReg to simulate timer progression */
 #define RESET_UNIT_REFCLK_CNT_LO_REG_ADDR         0x800300E0
@@ -515,6 +516,9 @@ ZTEST(msgqueue, test_msg_type_read_eeprom_no_flash)
 
 ZTEST(msgqueue, test_msg_type_force_vdd)
 {
+	voltage_arbiter.vdd_min = 700;
+	voltage_arbiter.vdd_max = 900;
+
 	/* Force a valid voltage */
 	req.force_vdd.command_code = TT_SMC_MSG_FORCE_VDD;
 	req.force_vdd.forced_voltage = 800;
