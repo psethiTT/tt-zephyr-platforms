@@ -13,8 +13,12 @@
 #include "regulator.h"
 #include "dvfs.h"
 
-/* TODO: Get these from SPI parameters */
-#define VDD_BOOT 750
+#define VDD_BOOT            750
+/* Bound checks for VDD_MAX and VDD_MIN (in mV) */
+#define VDD_MAX_UPPER_LIMIT 900U
+#define VDD_MAX_LOWER_LIMIT 700U
+#define VDD_MIN_UPPER_LIMIT 900U
+#define VDD_MIN_LOWER_LIMIT 650U
 
 static const struct device *const fwtable_dev = DEVICE_DT_GET(DT_NODELABEL(fwtable));
 
@@ -56,8 +60,12 @@ void CalculateTargVoltage(void)
 
 int InitVoltagePPM(void)
 {
-	voltage_arbiter.vdd_min = tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.vdd_min;
-	voltage_arbiter.vdd_max = tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.vdd_max;
+	voltage_arbiter.vdd_min =
+		CLAMP(tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.vdd_min,
+		      VDD_MIN_LOWER_LIMIT, VDD_MIN_UPPER_LIMIT);
+	voltage_arbiter.vdd_max =
+		CLAMP(tt_bh_fwtable_get_fw_table(fwtable_dev)->chip_limits.vdd_max,
+		      VDD_MAX_LOWER_LIMIT, VDD_MAX_UPPER_LIMIT);
 
 	/* disable forcing of VDD */
 	voltage_arbiter.forced_voltage = 0;
