@@ -35,9 +35,9 @@ package-managers:
 
 blobs:
   - path: tt_blackhole_erisc.bin
-    sha256: 83bc161d773c44ecbab9bd4c0f7f804a89f78c314c76b1f685b9c3c65de44bfe
+    sha256: 16ac925573a3ff1071db6bdb80ec2555e5297e87631f3f5ff54091064f8e2144
     type: img
-    version: '1.10.1'
+    version: '1.11.0'
     license-path: zephyr/blobs/license.txt
     url: "https://github.com/tenstorrent/tt-system-firmware/\
           raw/refs/heads/main/zephyr/blobs/tt_blackhole_erisc.bin"
@@ -46,7 +46,7 @@ blobs:
   - path: tt_blackhole_erisc_params.bin
     sha256: 6dd22a60a0d10a438c7332922d75c1f7609ee21227a54ab3eabee1c6e1285d25
     type: img
-    version: '1.10.1'
+    version: '1.11.0'
     license-path: zephyr/blobs/license.txt
     url: "https://github.com/tenstorrent/tt-system-firmware/\
           raw/refs/heads/main/zephyr/blobs/tt_blackhole_erisc_params.bin"
