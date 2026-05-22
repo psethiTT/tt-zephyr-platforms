@@ -18,6 +18,14 @@ Major enhancements with this release include:
 
 - For P300C boards, update PCIe speed to Gen4 to improve QB2 PCIe stability (SYS-4229).
 
+### Stability Improvements
+
+- Updated Blackhole ERISC FW to v1.11.0
+  - Keep all ETH interrupt modes DISABLED to avoid jumping into the IVT on RISC0 kernel switchover (tt-metal#44188)
+  - Enable MACPCS ECC cabability
+  - Added MACPCS/SerDes reset-deassert timestamps to boot results
+  - ETH msg PORT_STATUS_CLEAR: clear accumulated live status counts in L1
+
 ## Grendel
 
 
