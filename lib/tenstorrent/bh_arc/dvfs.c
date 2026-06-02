@@ -5,15 +5,33 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include "vf_curve.h"
 #include "throttler.h"
 #include "aiclk_ppm.h"
 #include "voltage.h"
 
+LOG_MODULE_REGISTER(dvfs, CONFIG_TT_APP_LOG_LEVEL);
+
 bool dvfs_enabled;
+
+/* Timing instrumentation: DVFSChange() runs ~1000x/sec, so we accumulate
+ * cycle counts and emit a single min/max/avg summary once per window instead
+ * of logging every call (which would flood the UART and distort the result).
+ */
+#define DVFS_TIMING_WINDOW 1000 /* calls per summary, ~1s at the 1ms interval */
+
+static struct {
+	uint32_t count;
+	uint32_t min_cyc;
+	uint32_t max_cyc;
+	uint64_t sum_cyc;
+} dvfs_timing = {.min_cyc = UINT32_MAX};
 
 void DVFSChange(void)
 {
+	uint32_t start = k_cycle_get_32();
+
 	CalculateThrottlers();
 	CalculateTargAiclk();
 
@@ -27,6 +45,31 @@ void DVFSChange(void)
 	DecreaseAiclk();
 	VoltageChange();
 	IncreaseAiclk();
+
+	/* Cycle counter is free-running; subtraction is correct across a 32-bit
+	 * wrap as long as the interval is < 2^32 cycles (~5.3s at 800MHz).
+	 */
+	uint32_t cyc = k_cycle_get_32() - start;
+
+	dvfs_timing.count++;
+	dvfs_timing.sum_cyc += cyc;
+	dvfs_timing.min_cyc = MIN(dvfs_timing.min_cyc, cyc);
+	dvfs_timing.max_cyc = MAX(dvfs_timing.max_cyc, cyc);
+
+	if (dvfs_timing.count >= DVFS_TIMING_WINDOW) {
+		uint32_t avg_cyc = dvfs_timing.sum_cyc / dvfs_timing.count;
+
+		LOG_INF("DVFSChange over %u calls: min=%lluns avg=%lluns max=%lluns",
+			dvfs_timing.count,
+			k_cyc_to_ns_floor64(dvfs_timing.min_cyc),
+			k_cyc_to_ns_floor64(avg_cyc),
+			k_cyc_to_ns_floor64(dvfs_timing.max_cyc));
+
+		dvfs_timing.count = 0;
+		dvfs_timing.sum_cyc = 0;
+		dvfs_timing.min_cyc = UINT32_MAX;
+		dvfs_timing.max_cyc = 0;
+	}
 }
 
 static void dvfs_work_handler(struct k_work *work)
