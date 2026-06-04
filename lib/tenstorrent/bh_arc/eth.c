@@ -38,6 +38,7 @@ LOG_MODULE_REGISTER(eth, CONFIG_TT_APP_LOG_LEVEL);
 #define ETH_PARAM_ADDR             0x7c000
 #define ETH_FW_VERSION_ADDR_OFFSET 0x188
 #define ETH_HEARTBEAT_ADDR         0x7cc70
+#define ETH_SERDES_CFG_ADDR        0x7d600
 
 #define ERISC_L1_SIZE (512 * 1024)
 
@@ -374,16 +375,45 @@ int LoadEthFwCfg(uint32_t eth_inst, uint32_t ring, uint8_t *buf, uint32_t eth_en
 	return 0;
 }
 
-bool LoadAltSerdes(uint8_t serdes_inst)
+/* Load the SerDes cfg from the SPI into given ETH's L1 at ETH_SERDES_CFG_ADDR */
+static int load_eth_serdes_cfg(uint32_t eth_inst, uint32_t ring, uint8_t *buf, size_t buf_size,
+			       size_t spi_address, size_t image_size)
+{
+	SetupEthTlb(eth_inst, ring, ETH_SERDES_CFG_ADDR);
+	volatile uint32_t *eth_tlb = GetTlbWindowAddr(ring, ETH_SETUP_TLB, ETH_SERDES_CFG_ADDR);
+
+	if (spi_arc_dma_transfer_to_tile(flash, spi_address, image_size, buf, buf_size,
+					 (uint8_t *)eth_tlb) < 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static bool load_alt_eth_serdes_cfg(uint8_t eth_inst)
 {
 	PcbType pcb_type;
 	uint32_t asic_location;
 	pcb_type = tt_bh_fwtable_get_pcb_type(fwtable_dev);
 	asic_location = tt_bh_fwtable_get_asic_location(fwtable_dev);
 
-	if (pcb_type == PcbTypeUBB &&
-		(asic_location >= 5 && asic_location <= 8) &&
-		serdes_inst == 5) {
+	if (pcb_type == PcbTypeUBB && (asic_location >= 5 && asic_location <= 8) &&
+	    (eth_inst == 7 || eth_inst == 8 || eth_inst == 9)) {
+		return true;
+	}
+
+	return false;
+}
+
+static bool LoadAltSerdes(uint8_t serdes_inst)
+{
+	PcbType pcb_type;
+	uint32_t asic_location;
+	pcb_type = tt_bh_fwtable_get_pcb_type(fwtable_dev);
+	asic_location = tt_bh_fwtable_get_asic_location(fwtable_dev);
+
+	if (pcb_type == PcbTypeUBB && (asic_location >= 5 && asic_location <= 8) &&
+	    serdes_inst == 5) {
 		return true;
 	}
 
@@ -394,11 +424,8 @@ static void SerdesEthInit(void)
 {
 	uint32_t ring = 0;
 	int rc;
-	tt_boot_fs_fd tag_fd;
-	size_t image_size;
-	size_t spi_address;
-	size_t alt_image_size;
-	size_t alt_spi_address;
+	tt_boot_fs_fd serdes_fw_fd;
+	tt_boot_fs_fd alt_serdes_fw_fd;
 
 	SetupEthSerdesMux(tile_enable.eth_enabled);
 
@@ -421,58 +448,29 @@ static void SerdesEthInit(void)
 
 	uint8_t buf[SCRATCHPAD_SIZE] __aligned(4);
 
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_SD_REG_TAG, &tag_fd);
-	if (rc < 0) {
-		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_SD_REG_TAG, rc);
-	}
-	image_size = tag_fd.flags.f.image_size;
-	spi_address = tag_fd.spi_addr;
-
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_REG_TAG, &tag_fd);
-	if (rc < 0) {
-		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_ALT_SD_REG_TAG, rc);
-	}
-	alt_image_size = tag_fd.flags.f.image_size;
-	alt_spi_address = tag_fd.spi_addr;
-
-	/* Load fw regs */
-	for (uint8_t serdes_inst = 0; serdes_inst < 6; serdes_inst++) {
-		if (IS_BIT_SET(load_serdes, serdes_inst)) {
-			if (LoadAltSerdes(serdes_inst)) {
-				LoadSerdesEthRegs(serdes_inst, ring, buf, SCRATCHPAD_SIZE, alt_spi_address,
-						alt_image_size);
-			} else {
-				LoadSerdesEthRegs(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
-						image_size);
-			}
-		}
-	}
-
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_SD_FW_TAG, &tag_fd);
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_SD_FW_TAG, &serdes_fw_fd);
 	if (rc < 0) {
 		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_SD_FW_TAG, rc);
 		return;
 	}
-	image_size = tag_fd.flags.f.image_size;
-	spi_address = tag_fd.spi_addr;
 
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_FW_TAG, &tag_fd);
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_FW_TAG, &alt_serdes_fw_fd);
 	if (rc < 0) {
 		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_ALT_SD_FW_TAG, rc);
 		return;
 	}
-	alt_image_size = tag_fd.flags.f.image_size;
-	alt_spi_address = tag_fd.spi_addr;
 
 	/* Load fw */
 	for (uint8_t serdes_inst = 0; serdes_inst < 6; serdes_inst++) {
 		if (IS_BIT_SET(load_serdes, serdes_inst)) {
 			if (LoadAltSerdes(serdes_inst)) {
-				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE, alt_spi_address,
-						alt_image_size);
+				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE,
+						alt_serdes_fw_fd.spi_addr,
+						alt_serdes_fw_fd.flags.f.image_size);
 			} else {
-				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE, spi_address,
-						image_size);
+				LoadSerdesEthFw(serdes_inst, ring, buf, SCRATCHPAD_SIZE,
+						serdes_fw_fd.spi_addr,
+						serdes_fw_fd.flags.f.image_size);
 			}
 		}
 	}
@@ -519,9 +517,10 @@ static void EthInit(void)
 {
 	uint32_t ring = 0;
 	int rc;
-	tt_boot_fs_fd tag_fd;
-	size_t image_size;
-	size_t spi_address;
+	tt_boot_fs_fd eth_fd;
+	tt_boot_fs_fd eth_cfg_fd;
+	tt_boot_fs_fd serdes_reg_fd;
+	tt_boot_fs_fd alt_serdes_reg_fd;
 
 	/* Early exit if no ETH tiles enabled */
 	if (tile_enable.eth_enabled == 0) {
@@ -532,43 +531,73 @@ static void EthInit(void)
 
 	uint8_t buf[SCRATCHPAD_SIZE] __aligned(4);
 
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_FW_TAG, &tag_fd);
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_FW_TAG, &eth_fd);
 	if (rc < 0) {
 		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_FW_TAG, rc);
 		return;
 	}
-	image_size = tag_fd.flags.f.image_size;
-	spi_address = tag_fd.spi_addr;
 
-	/* Load fw */
-	for (uint8_t eth_inst = 0; eth_inst < MAX_ETH_INSTANCES; eth_inst++) {
-		if (IS_BIT_SET(tile_enable.eth_enabled, eth_inst)) {
-			LoadEthFw(eth_inst, ring, buf, SCRATCHPAD_SIZE, spi_address, image_size);
-		}
-	}
-
-	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_FW_CFG_TAG, &tag_fd);
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_FW_CFG_TAG, &eth_cfg_fd);
 	if (rc < 0) {
 		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_FW_CFG_TAG, rc);
 		return;
 	}
-	image_size = tag_fd.flags.f.image_size;
-	spi_address = tag_fd.spi_addr;
 
 	/* Loading ETH FW configuration data requires the whole data to be loaded into buffer */
-	__ASSERT(SCRATCHPAD_SIZE >= image_size,
+	__ASSERT(SCRATCHPAD_SIZE >= eth_cfg_fd.flags.f.image_size,
 		 "spi buffer size %zu must be larger than image size %zu", SCRATCHPAD_SIZE,
-		 image_size);
+		 eth_cfg_fd.flags.f.image_size);
 
-	/* Load param table */
+	/* Load the SerDes cfg from SPI into each enabled ETH tile's L1 at ETH_SERDES_CFG_ADDR */
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_SD_REG_TAG, &serdes_reg_fd);
+	if (rc < 0) {
+		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_SD_REG_TAG, rc);
+		return;
+	}
+
+	rc = tt_boot_fs_find_fd_by_tag(flash, ETH_ALT_SD_REG_TAG, &alt_serdes_reg_fd);
+	if (rc < 0) {
+		LOG_ERR("%s(%s) failed: %d", "tt_boot_fs_find_fd_by_tag", ETH_ALT_SD_REG_TAG, rc);
+		return;
+	}
+
+	/* Load fw, params, and serdes cfg */
 	for (uint8_t eth_inst = 0; eth_inst < MAX_ETH_INSTANCES; eth_inst++) {
-		if (IS_BIT_SET(tile_enable.eth_enabled, eth_inst)) {
-			LoadEthFwCfg(eth_inst, ring, buf, tile_enable.eth_enabled, spi_address,
-				     image_size);
-			ReleaseEthReset(eth_inst, ring);
+		if (!IS_BIT_SET(tile_enable.eth_enabled, eth_inst)) {
+			continue;
 		}
-		/* Clear saved heartbeat since we just released reset, so heartbeat starts from 0 */
+
+		LoadEthFw(eth_inst, ring, buf, SCRATCHPAD_SIZE, eth_fd.spi_addr,
+			  eth_fd.flags.f.image_size);
+
+		if (load_alt_eth_serdes_cfg(eth_inst)) {
+			rc = load_eth_serdes_cfg(eth_inst, ring, buf, SCRATCHPAD_SIZE,
+						 alt_serdes_reg_fd.spi_addr,
+						 alt_serdes_reg_fd.flags.f.image_size);
+		} else {
+			rc = load_eth_serdes_cfg(eth_inst, ring, buf, SCRATCHPAD_SIZE,
+						 serdes_reg_fd.spi_addr,
+						 serdes_reg_fd.flags.f.image_size);
+		}
+		if (rc < 0) {
+			LOG_ERR("%s(%u) failed: %d", "load_eth_serdes_cfg", eth_inst, rc);
+			return;
+		}
+
+		LoadEthFwCfg(eth_inst, ring, buf, tile_enable.eth_enabled, eth_cfg_fd.spi_addr,
+			     eth_cfg_fd.flags.f.image_size);
+	}
+
+	/* Deassert tile reset */
+	for (uint8_t eth_inst = 0; eth_inst < MAX_ETH_INSTANCES; eth_inst++) {
+		/* Clear saved heartbeat since we are releasing reset, so heartbeat starts from 0 */
 		saved_heartbeat[eth_inst] = 0;
+
+		if (!IS_BIT_SET(tile_enable.eth_enabled, eth_inst)) {
+			continue;
+		}
+
+		ReleaseEthReset(eth_inst, ring);
 	}
 }
 
@@ -689,12 +718,14 @@ static uint8_t toggle_eth_reset_handler(const union request *req, struct respons
 
 		/* Start ERISC FW */
 		for (uint8_t eth_inst = 0; eth_inst < MAX_ETH_INSTANCES; eth_inst++) {
+			/* Ensure that saved heartbeat is cleared before releasing reset */
+			saved_heartbeat[eth_inst] = 0;
+
 			if (!IS_BIT_SET(mask, eth_inst)) {
 				continue;
 			}
 
 			ReleaseEthReset(eth_inst, ring);
-			saved_heartbeat[eth_inst] = 0;
 		}
 	}
 
