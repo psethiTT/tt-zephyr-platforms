@@ -67,6 +67,19 @@ struct OperationBits {
 };
 LOG_MODULE_REGISTER(regulator);
 
+/* Timing instrumentation for get_vcore(): accumulate cycle counts over a window
+ * and emit a min/avg/max summary once per window, plus stream each new minimum
+ * below the threshold. Mirrors the DVFSChange() instrumentation in dvfs.c.
+ */
+#define VCORE_TIMING_WINDOW 1000
+
+static struct {
+	uint32_t count;
+	uint32_t min_cyc;
+	uint32_t max_cyc;
+	uint64_t sum_cyc;
+} vcore_timing = {.min_cyc = UINT32_MAX};
+
 /* The default value is the regulator default */
 static uint8_t vout_cmd_source = VoutCommand;
 static const struct device *const fwtable_dev = DEVICE_DT_GET(DT_NODELABEL(fwtable));
@@ -168,7 +181,27 @@ void set_vcore(uint32_t voltage_in_mv)
 
 uint32_t get_vcore(void)
 {
-	return i2c_get_max20816(P0V8_VCORE_ADDR);
+	uint32_t start = k_cycle_get_32();
+	float vcore = i2c_get_max20816(P0V8_VCORE_ADDR);
+	uint32_t cycle_time = k_cycle_get_32() - start;
+
+	if (vcore_timing.count < VCORE_TIMING_WINDOW) {
+		vcore_timing.count++;
+		vcore_timing.sum_cyc += cycle_time;
+		vcore_timing.min_cyc = MIN(vcore_timing.min_cyc, cycle_time);
+		vcore_timing.max_cyc = MAX(vcore_timing.max_cyc, cycle_time);
+
+		if (vcore_timing.count == VCORE_TIMING_WINDOW) {
+			uint32_t avg_cyc = vcore_timing.sum_cyc / vcore_timing.count;
+
+			LOG_INF("get_vcore over %u calls: min=%lluns avg=%lluns max=%lluns",
+				vcore_timing.count,
+				k_cyc_to_ns_floor64(vcore_timing.min_cyc),
+				k_cyc_to_ns_floor64(avg_cyc),
+				k_cyc_to_ns_floor64(vcore_timing.max_cyc));
+		}
+	}
+	return vcore;
 }
 
 void set_vcorem(uint32_t voltage_in_mv)

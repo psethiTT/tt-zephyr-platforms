@@ -9,6 +9,8 @@
 
 #include <tenstorrent/sys_init_defines.h>
 #include <zephyr/init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -19,6 +21,21 @@ static const struct device *const pll_dev_1 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL
 
 #include "timer.h"
 #include "reg.h"
+
+LOG_MODULE_REGISTER(avs);
+
+/* Timing instrumentation for AVSReadCurrent(): accumulate cycle counts over a
+ * window and emit a min/avg/max summary once per window. Mirrors the get_vcore()
+ * instrumentation in regulator.c.
+ */
+#define CURRENT_TIMING_WINDOW 1000
+
+static struct {
+	uint32_t count;
+	uint32_t min_cyc;
+	uint32_t max_cyc;
+	uint64_t sum_cyc;
+} current_timing = {.min_cyc = UINT32_MAX};
 
 #define APB2AVSBUS_AVS_INTERRUPT_MASK_REG_ADDR 0x80100034
 #define APB2AVSBUS_AVS_CFG_1_REG_ADDR          0x80100054
@@ -225,10 +242,32 @@ AVSStatus AVSWriteVoutTransRate(uint8_t rise_rate, uint8_t fall_rate, uint8_t ra
 /* Returns current in A */
 AVSStatus AVSReadCurrent(uint8_t rail_sel, float *current_in_A)
 {
+	uint32_t start = k_cycle_get_32();
+
 	SendCmd(AVS_RD_CMD_DATA, rail_sel, AVS_CMD_CURRENT_READ, AVSRead);
 	uint16_t current_in_10mA;
 	AVSStatus status = ReadRxFifo(&current_in_10mA);
 	*current_in_A = current_in_10mA * 0.01f;
+
+	uint32_t cycle_time = k_cycle_get_32() - start;
+
+	if (current_timing.count < CURRENT_TIMING_WINDOW) {
+		current_timing.count++;
+		current_timing.sum_cyc += cycle_time;
+		current_timing.min_cyc = MIN(current_timing.min_cyc, cycle_time);
+		current_timing.max_cyc = MAX(current_timing.max_cyc, cycle_time);
+
+		if (current_timing.count == CURRENT_TIMING_WINDOW) {
+			uint32_t avg_cyc = current_timing.sum_cyc / current_timing.count;
+
+			LOG_INF("AVSReadCurrent over %u calls: min=%lluns avg=%lluns max=%lluns",
+				current_timing.count,
+				k_cyc_to_ns_floor64(current_timing.min_cyc),
+				k_cyc_to_ns_floor64(avg_cyc),
+				k_cyc_to_ns_floor64(current_timing.max_cyc));
+		}
+	}
+
 	return status;
 }
 

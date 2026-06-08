@@ -19,7 +19,7 @@ bool dvfs_enabled;
  * cycle counts and emit a single min/max/avg summary once per window instead
  * of logging every call (which would flood the UART and distort the result).
  */
-#define DVFS_TIMING_WINDOW 1000 /* calls per summary, ~1s at the 1ms interval */
+#define DVFS_TIMING_WINDOW 2000 /* calls per summary, ~1s at the 1ms interval */
 
 static struct {
 	uint32_t count;
@@ -49,27 +49,28 @@ void DVFSChange(void)
 	/* Cycle counter is free-running; subtraction is correct across a 32-bit
 	 * wrap as long as the interval is < 2^32 cycles (~5.3s at 800MHz).
 	 */
-	uint32_t cyc = k_cycle_get_32() - start;
+	uint32_t cycle_time = k_cycle_get_32() - start;
 
-	dvfs_timing.count++;
-	dvfs_timing.sum_cyc += cyc;
-	dvfs_timing.min_cyc = MIN(dvfs_timing.min_cyc, cyc);
-	dvfs_timing.max_cyc = MAX(dvfs_timing.max_cyc, cyc);
+	if (dvfs_timing.count < DVFS_TIMING_WINDOW) {
+		dvfs_timing.sum_cyc += cycle_time;
+		dvfs_timing.min_cyc = MIN(dvfs_timing.min_cyc, cycle_time);
+		dvfs_timing.max_cyc = MAX(dvfs_timing.max_cyc, cycle_time);
 
-	if (dvfs_timing.count >= DVFS_TIMING_WINDOW) {
-		uint32_t avg_cyc = dvfs_timing.sum_cyc / dvfs_timing.count;
-
-		LOG_INF("DVFSChange over %u calls: min=%lluns avg=%lluns max=%lluns",
-			dvfs_timing.count,
-			k_cyc_to_ns_floor64(dvfs_timing.min_cyc),
-			k_cyc_to_ns_floor64(avg_cyc),
-			k_cyc_to_ns_floor64(dvfs_timing.max_cyc));
-
-		dvfs_timing.count = 0;
-		dvfs_timing.sum_cyc = 0;
-		dvfs_timing.min_cyc = UINT32_MAX;
-		dvfs_timing.max_cyc = 0;
-	}
+		if(k_cyc_to_ns_floor64(cycle_time) > 250000) {
+			LOG_INF("DVFSChange at %u count: time taken=%lluns",
+				dvfs_timing.count,
+				k_cyc_to_ns_floor64(cycle_time));
+		}
+		if (dvfs_timing.count == DVFS_TIMING_WINDOW - 1) {
+			uint32_t avg_cyc = dvfs_timing.sum_cyc / dvfs_timing.count;
+			LOG_INF("DVFSChange over %u calls: min=%lluns avg=%lluns max=%lluns",
+				dvfs_timing.count,
+				k_cyc_to_ns_floor64(dvfs_timing.min_cyc),
+				k_cyc_to_ns_floor64(avg_cyc),
+				k_cyc_to_ns_floor64(dvfs_timing.max_cyc));
+		}
+		dvfs_timing.count++;
+	}	
 }
 
 static void dvfs_work_handler(struct k_work *work)
