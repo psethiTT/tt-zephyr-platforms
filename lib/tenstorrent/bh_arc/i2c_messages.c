@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/kernel.h>          /* k_cycle_get_32, k_cyc_to_ns_floor64 */
+#include <zephyr/logging/log.h>
 #include <tenstorrent/smc_msg.h>
 #include <tenstorrent/msgqueue.h>
 #include "dw_apb_i2c.h"
+
+LOG_MODULE_REGISTER(i2c_messages, CONFIG_TT_APP_LOG_LEVEL);
 
 #define DATA_TOO_LARGE 0x01
 
@@ -44,6 +48,8 @@
  */
 static uint8_t i2c_message_handler(const union request *request, struct response *response)
 {
+	//uint32_t start = k_cycle_get_32();
+
 	uint8_t I2C_mst_id = request->i2c_message.i2c_mst_id;
 	bool valid_id = IsValidI2CMasterId(I2C_mst_id);
 
@@ -64,9 +70,15 @@ static uint8_t i2c_message_handler(const union request *request, struct response
 	uint8_t *write_data_ptr = (uint8_t *)request->i2c_message.write_data;
 	uint8_t *read_data_ptr = (uint8_t *)&response->data[1];
 
-	I2CInit(I2CMst, I2C_slave_address, I2CStandardMode, I2C_mst_id);
+	uint32_t start = k_cycle_get_32();
+
+	I2CInit(I2CMst, I2C_slave_address, I2CFastMode, I2C_mst_id);
 	uint32_t status = I2CTransaction(I2C_mst_id, write_data_ptr, num_write_bytes, read_data_ptr,
 					 num_read_bytes);
+
+	uint32_t cyc = k_cycle_get_32() - start;
+
+	LOG_INF("i2c_message_handler took %lluns", k_cyc_to_ns_floor64(cyc));
 
 	return status != 0;
 }
