@@ -18,8 +18,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gen-config:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix-config: ${{ steps.gen-config.outputs.matrix-config }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: gen-config
+        shell: bash
+        run: |
+          # Fan out across the Blackhole boards we collect telemetry on, sourcing
+          # each board's runs-on label and metal-image from the shared config.
+          MATRIX_CONFIG="$(jq -c '[.[] | select((.product == "bh") and ((.board == "p150a") or (.board == "p300a"))) | del(.product)]' .github/ci_boards.json)"
+          echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
+
   pcie-didt-telemetry:
     name: BH PCIe DIDT + Telemetry on ${{ matrix.config.board }}
+    needs: [gen-config]
     # TEMPORARY: the `pull_request` clause (without the merged check) lets every
     # PR push trigger the job. Replace this `if:` with
     #   if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
@@ -28,10 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - board: p150a
-            runs-on: p150a-jtag
-            metal-image: ghcr.io/tenstorrent/tt-metal/upstream-tests-bh:v0.70.0-dev20260422-9-g6d3bc8e204
+        config: ${{ fromJson(needs.gen-config.outputs.matrix-config) }}
     runs-on: ${{ matrix.config.runs-on }}
     env:
       LLAMA_INSTRUCT_DIR: /opt/tenstorrent/hf-models/meta-llama/Llama-3.1-8B-Instruct/
@@ -76,18 +88,20 @@ jobs:
           echo "TELEMETRY_PID=$TELEM_PID" >> "$GITHUB_ENV"
           echo "Started telemetry collection (PID $TELEM_PID)"
 
-      - name: Run test_suite_bh_pcie_didt_tests
+      - name: Run DIDT resnet_conv subtest
         timeout-minutes: 65
         run: |
           timeout --preserve-status 60m \
           docker run \
+            --entrypoint pytest \
             --device /dev/tenstorrent \
             -v /dev/hugepages-1G:/dev/hugepages-1G \
             -v "$LLAMA_INSTRUCT_DIR:$LLAMA_INSTRUCT_DIR" \
             -e HF_MODEL="$LLAMA_INSTRUCT_DIR" \
             -e TT_CACHE_PATH="$LLAMA_INSTRUCT_DIR" \
             ${{ matrix.config.metal-image }} \
-              blackhole --test-suite "$WORKLOAD"
+              tests/didt/test_resnet_conv.py::test_resnet_conv -k "all" \
+              --didt-workload-iterations 100 --determinism-check-interval 0
 
       - name: Stop telemetry collection
         if: ${{ always() }}
