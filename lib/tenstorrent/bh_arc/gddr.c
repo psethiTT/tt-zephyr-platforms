@@ -458,7 +458,7 @@ static int InitMrisc(void)
 
 	return 0;
 }
-SYS_INIT_APP(InitMrisc);
+//SYS_INIT_APP(InitMrisc);
 
 static int CheckGddrTraining(uint8_t gddr_inst, k_timepoint_t timeout)
 {
@@ -610,7 +610,7 @@ int32_t set_mrisc_power_setting(bool on)
 			     "power_setting");
 }
 
-SYS_INIT_APP(gddr_training);
+//SYS_INIT_APP(gddr_training);
 
 static void assert_mrisc_soft_reset(uint8_t gddr_inst)
 {

@@ -19,7 +19,7 @@ TileEnable tile_enable = {
 	.eth5_serdes = true,
 	.eth8_serdes = true,
 	.eth_serdes_connected = BIT_MASK(12),
-	.gddr_enabled = BIT_MASK(8),
+	.gddr_enabled = 0, //BIT_MASK(8)
 	.l2cpu_enabled = BIT_MASK(4),
 	.pcie_enabled = BIT_MASK(2),
 };
@@ -260,6 +260,12 @@ static int CalculateHarvesting(void)
 			tile_enable.eth_serdes_connected &= ~(BIT(11) | BIT(10) | BIT(9) | BIT(8));
 		}
 	}
+
+	/* Force GDDR fully disabled: no MRISC FW load, training, or telemetry reads.
+	 * Overrides the BIT_MASK(8) reset earlier in this function; paired with
+	 * disabling the InitMrisc and gddr_training SYS_INITs in gddr.c.
+	 */
+	tile_enable.gddr_enabled = 0;
 
 	return 0;
 }
