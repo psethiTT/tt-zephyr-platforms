@@ -54,8 +54,8 @@ void ReadTelemetryInternal(int64_t max_staleness, TelemetryInternalData *data)
 		internal_data.vcore_power =
 			internal_data.vcore_current * internal_data.vcore_voltage * 0.001f;
 		internal_data.asic_temperature = avg_tmp;
-		internal_data.gddr_io_current_west = GetGddrWestIoCurrent();
-		internal_data.gddr_io_current_east = GetGddrEastIoCurrent();
+		internal_data.gddr_io_power_west = GetGddrWestIoPower();
+		internal_data.gddr_io_power_east = GetGddrEastIoPower();
 
 		(void)get_gddr_temps(&internal_data.gddr_temps);
 

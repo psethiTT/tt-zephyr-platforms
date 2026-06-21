@@ -167,6 +167,8 @@ static struct telemetry_table telemetry_table = {
 		[65] = {TAG_HOST_AICLK_LIMIT, TELEM_OFFSET(TAG_HOST_AICLK_LIMIT)},
 		[66] = {TAG_SMBUS_ERRORS, TELEM_OFFSET(TAG_SMBUS_ERRORS)},
 		[67] = {TAG_GDDR_MRISC_NOC2AXI_PORT, TELEM_OFFSET(TAG_GDDR_MRISC_NOC2AXI_PORT)},
+		[68] = {TAG_GDDR_WEST_IO_POWER, TELEM_OFFSET(TAG_GDDR_WEST_IO_POWER)},
+		[69] = {TAG_GDDR_EAST_IO_POWER, TELEM_OFFSET(TAG_GDDR_EAST_IO_POWER)},
 	},
 };
 /* clang-format on */
@@ -529,6 +531,10 @@ static void update_telemetry(void)
 	telemetry[TAG_MAX_GDDR_TEMP] = telemetry_internal_data.gddr_temps.max_temp;
 	telemetry[TAG_INPUT_POWER] = GetInputPower(); /* Input power - reported in W */
 	telemetry[TAG_SMBUS_ERRORS] = smbus_target_get_error_count(smbus_target_dev);
+	/* reported in W, truncated to uint32_t */
+	telemetry[TAG_GDDR_WEST_IO_POWER] = telemetry_internal_data.gddr_io_power_west;
+	/* reported in W, truncated to uint32_t */
+	telemetry[TAG_GDDR_EAST_IO_POWER] = telemetry_internal_data.gddr_io_power_east;
 	telemetry[TAG_TIMER_HEARTBEAT]++; /* Incremented every time the timer is called */
 	SetPostCode(POST_CODE_SRC_CMFW, POST_CODE_TELEMETRY_END);
 }

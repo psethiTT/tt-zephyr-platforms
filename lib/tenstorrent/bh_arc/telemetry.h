@@ -355,12 +355,26 @@
  */
 #define TAG_GDDR_MRISC_NOC2AXI_PORT 72
 
+/**
+ * @brief GDDR west IO rail power in watts.
+ *
+ * Derived from the west IO rail current and the fixed 1.35 V rail supply.
+ */
+#define TAG_GDDR_WEST_IO_POWER 73
+
+/**
+ * @brief GDDR east IO rail power in watts.
+ *
+ * Derived from the east IO rail current and the fixed 1.35 V rail supply.
+ */
+#define TAG_GDDR_EAST_IO_POWER 74
+
 /** @} */ /* end of telemetry_tag group */
 
 /* Not a real tag, signifies the last tag in the list.
  * MUST be incremented if new tags are defined.
  */
-#define TAG_COUNT 73
+#define TAG_COUNT 75
 
 /* Telemetry tags are at offset `tag` in the telemetry buffer */
 #define TELEM_OFFSET(tag) (tag)
