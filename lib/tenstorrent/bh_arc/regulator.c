@@ -42,8 +42,9 @@
 #define READ_VOUT_DATA_BYTE_SIZE       2
 #define READ_IOUT                      0x8C
 #define READ_IOUT_DATA_BYTE_SIZE       2
-#define READ_IOUT_DIRECT_MASK          0x3FFF /* 14-bit raw IOUT field */
+#define READ_IOUT_DIRECT_MASK          0x3FFF  /* 14-bit raw IOUT field */
 #define GDDRIO_IOUT_LSB_A              0.0625f /* 62.5 mA per LSB */
+#define GDDR_IO_RAIL_VOLTAGE           1.35f   /* V - fixed IO rail supply */
 #define READ_POUT                      0x96
 #define READ_POUT_DATA_BYTE_SIZE       2
 #define OPERATION                      0x1
@@ -123,6 +124,18 @@ float GetGddrEastIoCurrent(void)
 	I2CReadBytes(PMBUS_MST_ID, READ_IOUT, PMBUS_CMD_BYTE_SIZE, (uint8_t *)&iout,
 		     READ_IOUT_DATA_BYTE_SIZE, PMBUS_FLIP_BYTES);
 	return ConvertGddrIoCurrentToFloat(iout);
+}
+
+/* The function returns the GDDR west IO rail power in W. */
+float GetGddrWestIoPower(void)
+{
+	return GetGddrWestIoCurrent() * GDDR_IO_RAIL_VOLTAGE;
+}
+
+/* The function returns the GDDR east IO rail power in W. */
+float GetGddrEastIoPower(void)
+{
+	return GetGddrEastIoCurrent() * GDDR_IO_RAIL_VOLTAGE;
 }
 
 /* The function returns the core power in W. */

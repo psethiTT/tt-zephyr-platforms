@@ -40,4 +40,6 @@ float GetVcorePower(void);
 void SwitchVoutControl(enum VoltageCmdSource source);
 float GetGddrWestIoCurrent(void);
 float GetGddrEastIoCurrent(void);
+float GetGddrWestIoPower(void);
+float GetGddrEastIoPower(void);
 #endif
