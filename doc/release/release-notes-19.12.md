@@ -16,6 +16,9 @@ Major enhancements with this release include:
 - Enable process based V/F curve for p300c
 - Read GDDR temperatures more frequently as part of internal telemetry
 
+### Telemetry
+- Carve out a region of memory for Metal runtime telemetry and publish its address and size via `SCRATCH_RAM[22:23]`.
+
 ## Grendel
 
 <!-- Subsections can break down improvements by (area or board) -->
