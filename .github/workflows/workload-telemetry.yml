@@ -51,6 +51,15 @@ jobs:
       VENV_DIR: ${{ github.workspace }}/.telem-env
       WORKLOAD: test_suite_bh_pcie_didt_tests
     steps:
+      - name: Reclaim workspace ownership
+        # These self-hosted runners are shared with container-based jobs
+        # (e.g. hardware-smoke, metal) that run `west` as root, leaving
+        # root-owned files like .west/config in the workspace. This job runs
+        # on the host as the runner user, so actions/checkout's default clean
+        # can't unlink those files (EACCES). Chown the tree back so the
+        # subsequent checkout clean succeeds.
+        run: sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
