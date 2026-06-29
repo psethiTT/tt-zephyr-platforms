@@ -90,11 +90,11 @@ jobs:
       # to telemetry_output/<name>). To add a new workload (e.g. llama, ff1),
       # copy one block below and set its name/workload/run.
       # ----------------------------------------------------------------------
-      - name: DIDT resnet_conv subtest
+      - name: resnet_conv subtest
         uses: ./.github/actions/power-telemetry-subtest
         with:
-          name: didt_resnet_conv
-          workload: test_suite_bh_pcie_didt_tests
+          name: resnet_conv
+          workload: power_measurement_CI
           board: ${{ matrix.config.board }}
           venv-dir: ${{ env.VENV_DIR }}
           timeout-minutes: "65"
@@ -108,6 +108,26 @@ jobs:
               -e TT_CACHE_PATH="$LLAMA_INSTRUCT_DIR" \
               ${{ matrix.config.metal-image }} \
                 tests/didt/test_resnet_conv.py::test_resnet_conv -k "all" \
+                --didt-workload-iterations 100 --determinism-check-interval 0
+
+      - name: ff1_matmul with_gelu subtest
+        uses: ./.github/actions/power-telemetry-subtest
+        with:
+          name: ff1_matmul_with_gelu
+          workload: power_measurement_CI
+          board: ${{ matrix.config.board }}
+          venv-dir: ${{ env.VENV_DIR }}
+          timeout-minutes: "65"
+          run: |
+            docker run \
+              --entrypoint pytest \
+              --device /dev/tenstorrent \
+              -v /dev/hugepages-1G:/dev/hugepages-1G \
+              -v "$LLAMA_INSTRUCT_DIR:$LLAMA_INSTRUCT_DIR" \
+              -e HF_MODEL="$LLAMA_INSTRUCT_DIR" \
+              -e TT_CACHE_PATH="$LLAMA_INSTRUCT_DIR" \
+              ${{ matrix.config.metal-image }} \
+                tests/didt/test_ff1_matmul.py::test_ff1_matmul -k "with_gelu and all" \
                 --didt-workload-iterations 100 --determinism-check-interval 0
 
       - name: Cleanup
