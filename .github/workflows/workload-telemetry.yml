@@ -60,10 +60,15 @@ jobs:
         # all boards, so `sudo` just errors ("a password is required") and the
         # leftovers survive into Checkout. Instead, get root the same way the
         # workload does -- inside a container -- and wipe the workspace from
-        # there. The bind-mounted dir is cleaned as root, and `docker` is
-        # already usable by the runner user without sudo.
+        # there. `docker` is already usable by the runner user without sudo.
+        #
+        # NOTE: `--user root` is required. The metal image's default user is
+        # non-root, so without it the container hits the same "Permission
+        # denied" on the root-owned leftovers (which is why the workload's
+        # metal-options also pass --user=root).
         run: |
           docker run --rm \
+            --user root \
             --entrypoint bash \
             -v "${{ github.workspace }}":/workspace \
             ${{ matrix.config.metal-image }} \
