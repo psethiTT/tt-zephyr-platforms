@@ -32,7 +32,7 @@ jobs:
           MATRIX_CONFIG="$(jq -c '[.[] | select((.product == "bh") and ((.board == "p150a") or (.board == "p300a"))) | del(.product)]' .github/ci_boards.json)"
           echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
 
-  pcie-didt-telemetry:
+  power_CI_telemetry:
     name: BH PCIe DIDT + Telemetry on ${{ matrix.config.board }}
     needs: [gen-config]
     # TEMPORARY: the `pull_request` clause (without the merged check) lets every
@@ -47,9 +47,7 @@ jobs:
     runs-on: ${{ matrix.config.runs-on }}
     env:
       LLAMA_INSTRUCT_DIR: /opt/tenstorrent/hf-models/meta-llama/Llama-3.1-8B-Instruct/
-      TELEMETRY_DIR: ${{ github.workspace }}/telemetry_output
       VENV_DIR: ${{ github.workspace }}/.telem-env
-      WORKLOAD: test_suite_bh_pcie_didt_tests
     steps:
       - name: Clean workspace
         # These self-hosted runners are shared with container-based jobs
@@ -76,94 +74,33 @@ jobs:
           "$VENV_DIR/bin/pip" install --upgrade pip
           "$VENV_DIR/bin/pip" install "pyluwen>=0.8.1" pandas
 
-      - name: Start telemetry collection
-        run: |
-          set -euxo pipefail
-          mkdir -p "$TELEMETRY_DIR"
-          cd "$TELEMETRY_DIR"
-          # Launch the telemetry script in the background. The runner user
-          # already has access to /dev/tenstorrent (same access other workflows
-          # use via pyluwen), so no sudo is required.
-          nohup "$VENV_DIR/bin/python3" \
-            "$GITHUB_WORKSPACE/scripts/read_telemetry.py" \
-            --csv telemetry \
-            --workload "$WORKLOAD" \
-            > telemetry.log 2>&1 < /dev/null &
-          TELEM_PID=$!
-          echo "$TELEM_PID" > telemetry.pid
-
-          # Give the script a moment to detect chips and start logging.
-          sleep 5
-
-          if ! kill -0 "$TELEM_PID" 2>/dev/null; then
-            echo "Telemetry process failed to start. Log:"
-            cat telemetry.log || true
-            exit 1
-          fi
-          echo "TELEMETRY_PID=$TELEM_PID" >> "$GITHUB_ENV"
-          echo "Started telemetry collection (PID $TELEM_PID)"
-
-      - name: Run DIDT resnet_conv subtest
-        timeout-minutes: 65
-        run: |
-          timeout --preserve-status 60m \
-          docker run \
-            --entrypoint pytest \
-            --device /dev/tenstorrent \
-            -v /dev/hugepages-1G:/dev/hugepages-1G \
-            -v "$LLAMA_INSTRUCT_DIR:$LLAMA_INSTRUCT_DIR" \
-            -e HF_MODEL="$LLAMA_INSTRUCT_DIR" \
-            -e TT_CACHE_PATH="$LLAMA_INSTRUCT_DIR" \
-            ${{ matrix.config.metal-image }} \
-              tests/didt/test_resnet_conv.py::test_resnet_conv -k "all" \
-              --didt-workload-iterations 100 --determinism-check-interval 0
-
-      - name: Stop telemetry collection
-        if: ${{ always() }}
-        run: |
-          set -uxo pipefail
-          PID="${TELEMETRY_PID:-}"
-          if [ -z "$PID" ] && [ -f "$TELEMETRY_DIR/telemetry.pid" ]; then
-            PID="$(cat "$TELEMETRY_DIR/telemetry.pid")"
-          fi
-          if [ -z "$PID" ]; then
-            PID="$(pgrep -f 'scripts/read_telemetry.py' | head -n 1 || true)"
-          fi
-
-          if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            echo "Sending SIGINT to telemetry process (PID $PID)"
-            kill -INT "$PID" || true
-            # Wait up to 30s for the script to flush CSVs and exit cleanly.
-            for _ in $(seq 1 30); do
-              if ! kill -0 "$PID" 2>/dev/null; then
-                break
-              fi
-              sleep 1
-            done
-            if kill -0 "$PID" 2>/dev/null; then
-              echo "Telemetry process still alive after SIGINT; force-killing."
-              kill -KILL "$PID" || true
-            fi
-          else
-            echo "No running telemetry process found."
-          fi
-
-          echo "--- Telemetry log ---"
-          cat "$TELEMETRY_DIR/telemetry.log" || true
-          echo "--- Generated files ---"
-          ls -la "$TELEMETRY_DIR" || true
-
-      - name: Upload telemetry CSV
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+      # ----------------------------------------------------------------------
+      # Subtests run sequentially, each wrapped in its own telemetry run by the
+      # power-telemetry-subtest composite action (start -> run -> stop -> upload
+      # to telemetry_output/<name>). To add a new workload (e.g. llama, ff1),
+      # copy one block below and set its name/workload/run.
+      # ----------------------------------------------------------------------
+      - name: DIDT resnet_conv subtest
+        uses: ./.github/actions/power-telemetry-subtest
         with:
-          name: pcie-didt-telemetry-${{ matrix.config.board }}
-          if-no-files-found: warn
-          path: |
-            telemetry_output/*.csv
-            telemetry_output/telemetry.log
+          name: didt_resnet_conv
+          workload: test_suite_bh_pcie_didt_tests
+          board: ${{ matrix.config.board }}
+          venv-dir: ${{ env.VENV_DIR }}
+          timeout-minutes: "65"
+          run: |
+            docker run \
+              --entrypoint pytest \
+              --device /dev/tenstorrent \
+              -v /dev/hugepages-1G:/dev/hugepages-1G \
+              -v "$LLAMA_INSTRUCT_DIR:$LLAMA_INSTRUCT_DIR" \
+              -e HF_MODEL="$LLAMA_INSTRUCT_DIR" \
+              -e TT_CACHE_PATH="$LLAMA_INSTRUCT_DIR" \
+              ${{ matrix.config.metal-image }} \
+                tests/didt/test_resnet_conv.py::test_resnet_conv -k "all" \
+                --didt-workload-iterations 100 --determinism-check-interval 0
 
       - name: Cleanup
         if: ${{ always() }}
         run: |
-          rm -rf "$TELEMETRY_DIR" "$VENV_DIR" || true
+          rm -rf "${{ github.workspace }}/telemetry_output" "$VENV_DIR" || true
