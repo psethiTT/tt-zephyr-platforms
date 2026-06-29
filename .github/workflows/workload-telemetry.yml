@@ -54,15 +54,20 @@ jobs:
         # (e.g. hardware-smoke, metal) that run `west` as root, leaving
         # root-owned files like .west/config in the workspace. This job runs
         # on the host as the runner user, so actions/checkout's default clean
-        # can't unlink those files (EACCES). `chown -R` doesn't help because
-        # .west is a symlink it won't recurse into, so wipe the leftovers
-        # directly as root before checkout (mirrors hardware-smoke's `rm -rf`,
-        # which gets root for free inside its privileged container).
+        # can't unlink those files (EACCES).
+        #
+        # We can't `sudo rm` them: the runner user has no passwordless sudo on
+        # all boards, so `sudo` just errors ("a password is required") and the
+        # leftovers survive into Checkout. Instead, get root the same way the
+        # workload does -- inside a container -- and wipe the workspace from
+        # there. The bind-mounted dir is cleaned as root, and `docker` is
+        # already usable by the runner user without sudo.
         run: |
-          sudo rm -rf \
-            "${{ github.workspace }}"/* \
-            "${{ github.workspace }}"/.[!.]* \
-            "${{ github.workspace }}"/..?* || true
+          docker run --rm \
+            --entrypoint bash \
+            -v "${{ github.workspace }}":/workspace \
+            ${{ matrix.config.metal-image }} \
+            -c 'rm -rf /workspace/* /workspace/.[!.]* /workspace/..?* || true'
 
       - name: Checkout
         uses: actions/checkout@v4
