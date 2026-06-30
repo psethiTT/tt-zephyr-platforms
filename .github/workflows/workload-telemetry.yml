@@ -29,7 +29,7 @@ jobs:
         run: |
           # Fan out across the Blackhole boards we collect telemetry on, sourcing
           # each board's runs-on label and metal-image from the shared config.
-          MATRIX_CONFIG="$(jq -c '[.[] | select((.product == "bh") and ((.board == "p150a") or (.board == "p300a"))) | del(.product)]' .github/ci_boards.json)"
+          MATRIX_CONFIG="$(jq -c '[.bh[] | select(.board == "p150a" or .board == "p300a")]' .github/ci_boards.json)"
           echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
 
   power_CI_telemetry:
@@ -44,7 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         config: ${{ fromJson(needs.gen-config.outputs.matrix-config) }}
-    runs-on: ${{ matrix.config.runs-on }}
+    runs-on: ${{ matrix.config.board }}
     env:
       LLAMA_INSTRUCT_DIR: /opt/tenstorrent/hf-models/meta-llama/Llama-3.1-8B-Instruct/
       VENV_DIR: ${{ github.workspace }}/.telem-env
