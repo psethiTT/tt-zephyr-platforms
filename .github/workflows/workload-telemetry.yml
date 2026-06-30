@@ -30,7 +30,12 @@ jobs:
           # Fan out across every Blackhole board, sourcing each board's runs-on
           # label and metal-image from the shared config. (WH boards like n150
           # have no metal-image and can't run these BH workloads.)
-          MATRIX_CONFIG="$(jq -c '.bh' .github/ci_boards.json)"
+          #
+          # TEMPORARY: p100a is excluded -- its runner host has 0 reserved 1G
+          # hugepages, so the workload fails to pin device memory ("Insufficient
+          # NumHugepages: 0"). Re-add it (drop the select) once the host is
+          # configured with 1G hugepages.
+          MATRIX_CONFIG="$(jq -c '[.bh[] | select(.board != "p100a")]' .github/ci_boards.json)"
           echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
 
   power_CI_telemetry:
