@@ -27,9 +27,10 @@ jobs:
       - id: gen-config
         shell: bash
         run: |
-          # Fan out across the Blackhole boards we collect telemetry on, sourcing
-          # each board's runs-on label and metal-image from the shared config.
-          MATRIX_CONFIG="$(jq -c '[.bh[] | select(.board == "p150a" or .board == "p300a")]' .github/ci_boards.json)"
+          # Fan out across every Blackhole board, sourcing each board's runs-on
+          # label and metal-image from the shared config. (WH boards like n150
+          # have no metal-image and can't run these BH workloads.)
+          MATRIX_CONFIG="$(jq -c '.bh' .github/ci_boards.json)"
           echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
 
   power_CI_telemetry:
