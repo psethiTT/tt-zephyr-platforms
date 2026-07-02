@@ -27,9 +27,16 @@ jobs:
       - id: gen-config
         shell: bash
         run: |
-          # Fan out across every Blackhole board, sourcing each board's runs-on
-          # label and metal-image from the shared config. (WH boards like n150
-          # have no metal-image and can't run these BH workloads.)
+          # Fan out across every Blackhole board, sourcing each board's
+          # dedicated power-CI runner label and metal-image from the shared
+          # config. (WH boards like n150 have no metal-image and can't run these
+          # BH workloads.)
+          #
+          # NOTE: the job targets `power-ci-label` (e.g. p150a-power-CI), not the
+          # bare board label. Exactly one runner per board type carries that
+          # custom label, so the power test always lands on that single runner --
+          # while that runner keeps its normal `<board>` label and stays shared
+          # with other workflows (metal, hardware-smoke, etc.).
           #
           # TEMPORARY: p100a is excluded -- its runner host has 0 reserved 1G
           # hugepages, so the workload fails to pin device memory ("Insufficient
@@ -50,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         config: ${{ fromJson(needs.gen-config.outputs.matrix-config) }}
-    runs-on: ${{ matrix.config.board }}
+    runs-on: ${{ matrix.config.power-ci-label }}
     env:
       LLAMA_INSTRUCT_DIR: /opt/tenstorrent/hf-models/meta-llama/Llama-3.1-8B-Instruct/
       VENV_DIR: ${{ github.workspace }}/.telem-env
