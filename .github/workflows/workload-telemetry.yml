@@ -42,7 +42,10 @@ jobs:
           # hugepages, so the workload fails to pin device memory ("Insufficient
           # NumHugepages: 0"). Re-add it (drop the select) once the host is
           # configured with 1G hugepages.
-          MATRIX_CONFIG="$(jq -c '[.bh[] | select(.board != "p100a")]' .github/ci_boards.json)"
+          #
+          # TEMPORARY: loudbox is excluded while its system is powered off.
+          # Re-add it once the host is back online.
+          MATRIX_CONFIG="$(jq -c '[.bh[] | select(.board != "p100a" and .board != "loudbox")]' .github/ci_boards.json)"
           echo "matrix-config=$MATRIX_CONFIG" | tee -a $GITHUB_OUTPUT
 
   power_CI_telemetry:
