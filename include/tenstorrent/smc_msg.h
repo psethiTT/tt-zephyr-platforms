@@ -180,6 +180,27 @@ enum char_submsg_ids {
 	TT_SUB_MSG_SET_KERNEL_THROTTLER_STOP_NOPS_FREQ = 0x3,
 	/** @brief Enable/disable GDDR thermal-trip action on over-temperature */
 	TT_SUB_MSG_SET_GDDR_THERM_TRIP_ENABLED = 0x4,
+	/** @brief Add/remove a voltage rail from the DVFS measurement loop */
+	TT_SUB_MSG_SET_RAIL_MEASUREMENT = 0x5,
+};
+
+/** @brief Enumeration of the rails that can be measured by the DVFS loop
+ *
+ * Used as the rail_id field of @ref char_rail_measurement_submsg. The VCORE and GDDR IO
+ * rails are always measured and are reported through their own telemetry tags, so they
+ * are not listed here.
+ */
+enum char_rail_id {
+	/** @brief SerDes VDD rail (not present on the left chip of a p300) */
+	TT_CHAR_RAIL_SERDES_VDD = 0x0,
+	/** @brief SerDes VDDL rail */
+	TT_CHAR_RAIL_SERDES_VDDL = 0x1,
+	/** @brief SerDes VDDH rail */
+	TT_CHAR_RAIL_SERDES_VDDH = 0x2,
+	/** @brief VCOREM rail */
+	TT_CHAR_RAIL_VCOREM = 0x3,
+	/** @brief Number of measurable rails, not a valid rail_id */
+	TT_CHAR_RAIL_COUNT,
 };
 
 /** @} */
