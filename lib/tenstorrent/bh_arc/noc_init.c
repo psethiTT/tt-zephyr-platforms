@@ -231,6 +231,15 @@ void SetSingleTileClockGate(uint8_t noc0_x, uint8_t noc0_y, bool gate)
 	WriteNocCfgReg(noc_regs, NIU_CFG_0, niu_cfg_0);
 }
 
+bool IsSingleTileClockGated(uint8_t noc0_x, uint8_t noc0_y)
+{
+	volatile uint32_t *noc_regs = SetupNiuTlb(kTlbIndex, noc0_x, noc0_y, 0);
+
+	uint32_t niu_cfg_0 = ReadNocCfgReg(noc_regs, NIU_CFG_0);
+
+	return (niu_cfg_0 & BIT(NIU_CFG_0_TILE_CLK_OFF)) != 0;
+}
+
 int NocInit(void)
 {
 	if (IS_ENABLED(CONFIG_TT_SMC_RECOVERY) || !IS_ENABLED(CONFIG_ARC)) {

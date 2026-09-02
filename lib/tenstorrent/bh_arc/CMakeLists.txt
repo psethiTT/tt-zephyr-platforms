@@ -85,6 +85,7 @@ if(NOT CONFIG_TT_SMC_RECOVERY)
     serdes_eth.c
     telemetry_internal.c
     tensix.c
+    tensix_ecc.c
     tensix_init.c
     throttler.c
     vf_curve.c

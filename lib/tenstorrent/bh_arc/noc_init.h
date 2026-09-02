@@ -26,6 +26,12 @@ bool IsNocTranslationEnabled(void);
 void NocLogicalToPhysical(uint8_t logical_x, uint8_t logical_y, uint8_t *phys_x, uint8_t *phys_y);
 void SetSingleTileClockGate(uint8_t noc0_x, uint8_t noc0_y, bool gate);
 
+/* Returns true if the tile's clock is gated off, read from its NIU over the NOC.
+ * Unlike bh_power_state_get(BH_POWER_DOMAIN_TENSIX), this is actual hardware state rather
+ * than a shadow that only the host power-request path updates.
+ */
+bool IsSingleTileClockGated(uint8_t noc0_x, uint8_t noc0_y);
+
 /* Returns NOC 0 coordinates of an enabled, unharvested tensix core.
  * It's guaranteed to be the same core until translation is enabled, disabled or modified.
  */
